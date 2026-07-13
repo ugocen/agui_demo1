@@ -1,14 +1,12 @@
 """AG-UI proxy.
 
-POST /api/agui/{agent_id} forwards the AG-UI request to the agent's
-AgentCore runtime invocation endpoint and pipes the SSE stream back
-unchanged. entra mode forwards the caller's bearer token, iam mode signs
-the upstream request with SigV4. httpx streaming, no buffering.
-
-Local development escape hatch: setting LOCAL_AGENT_URL_<AGENT_ID>
-(for example LOCAL_AGENT_URL_RELEASE=http://127.0.0.1:8080/invocations)
-proxies that agent to a locally running process instead of AgentCore.
-Unset in normal operation.
+POST /api/agui/{agent_id} looks up the agent in the DB catalog (populated from
+AgentCore, never from env), forwards the AG-UI request to that runtime's
+AgentCore invocation endpoint, and pipes the SSE stream back unchanged. The
+upstream call is always SigV4-signed with the host's AWS credentials; in entra
+mode the caller's Entra token has already been validated at the platform
+boundary, so the backend calls AgentCore as the trusted caller. httpx streaming,
+no buffering.
 """
 
 import json
@@ -90,30 +88,27 @@ async def proxy_agui(
         len(body),
     )
 
-    local_url = os.environ.get(f"LOCAL_AGENT_URL_{agent_id.upper()}", "")
-    if local_url:
-        url = local_url
-        log.debug("proxy %s -> LOCAL override %s", agent_id, url)
-    else:
-        runtime_arn = agent["runtime_arn"]
-        if not runtime_arn:
-            raise HTTPException(
-                status_code=503,
-                detail=f"runtime ARN for {agent_id} is not set in .env, deploy the agent first",
-            )
-        region = os.environ.get("AWS_REGION", "")
-        if not region:
-            raise HTTPException(status_code=500, detail="AWS_REGION is not set in .env")
-        url = invocation_url(runtime_arn, region)
-        # The Phase 0 runtimes are deployed with IAM auth, so the AgentCore
-        # call is always SigV4-signed regardless of the app-level auth mode.
-        # In entra mode the backend has already validated the user's Entra ID
-        # token (SSO at the platform boundary) and now acts as the trusted
-        # caller — the "backend exchanges the token and calls AgentCore with
-        # SigV4" pattern from doc 05. The user's identity stays in the request
-        # context (user["user"]) but is not forwarded upstream.
-        headers = sigv4_headers(url, body, region, headers)
-        log.debug("proxy %s -> AgentCore (SigV4) %s", agent_id, url.split("?")[0])
+    # The runtime ARN comes from the DB catalog entry (synced from AgentCore),
+    # never from env. An empty ARN means the catalog is stale / the runtime was
+    # removed from AgentCore — re-sync to fix.
+    runtime_arn = agent["runtime_arn"]
+    if not runtime_arn:
+        raise HTTPException(
+            status_code=503,
+            detail=f"agent {agent_id} has no AgentCore runtime ARN in the catalog — re-sync the catalog",
+        )
+    region = os.environ.get("AWS_REGION", "")
+    if not region:
+        raise HTTPException(status_code=500, detail="AWS_REGION is not set")
+    url = invocation_url(runtime_arn, region)
+    # Runtimes are deployed with IAM auth, so the AgentCore call is always
+    # SigV4-signed regardless of the app-level auth mode. In entra mode the
+    # backend has already validated the user's Entra ID token (SSO at the platform
+    # boundary) and now acts as the trusted caller — the "backend exchanges the
+    # token and calls AgentCore with SigV4" pattern. The user's identity stays in
+    # the request context (user["user"]) but is not forwarded upstream.
+    headers = sigv4_headers(url, body, region, headers)
+    log.debug("proxy %s -> AgentCore (SigV4) %s", agent_id, url.split("?")[0])
 
     client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=None, write=30, pool=10))
     upstream_request = client.build_request("POST", url, content=body, headers=headers)

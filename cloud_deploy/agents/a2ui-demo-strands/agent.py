@@ -6,7 +6,8 @@ CopilotKit runtime applies the A2UI middleware (ui_mode=a2ui in the catalog),
 which injects the `render_a2ui` tool + the A2UI v0.9 component catalog into the
 run. This agent's job is simply to always answer by rendering an A2UI surface.
 
-Run locally (points the proxy at it via LOCAL_AGENT_URL_A2UIDEMO):
+Deployed to AgentCore; the platform reaches it only via the DB catalog + SigV4.
+Standalone local test (not wired to the platform):
     BEDROCK_MODEL_ID=... python agent.py     # serves /invocations + /ping on :8090
 """
 
