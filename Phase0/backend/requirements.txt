@@ -8,3 +8,4 @@ python-dotenv==1.2.2
 SQLAlchemy[asyncio]==2.0.44
 aiosqlite==0.21.0
 structlog==26.1.0
+alembic==1.18.5
