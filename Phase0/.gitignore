@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+node_modules/
+.next/
+*.zip
+*.db
+*.sqlite3
+.env.local
+.DS_Store

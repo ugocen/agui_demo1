@@ -1,0 +1,10 @@
+fastapi==0.139.0
+uvicorn==0.51.0
+httpx==0.28.1
+boto3==1.43.46
+botocore[crt]==1.43.46
+PyJWT[crypto]==2.13.0
+python-dotenv==1.2.2
+SQLAlchemy[asyncio]==2.0.44
+aiosqlite==0.21.0
+structlog==26.1.0
