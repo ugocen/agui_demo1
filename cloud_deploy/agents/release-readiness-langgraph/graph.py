@@ -11,6 +11,7 @@ import re
 import uuid
 from typing import Annotated, TypedDict
 
+import boto3
 from langchain_aws import ChatBedrockConverse
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -18,6 +19,34 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
+
+# --- Enterprise Bedrock gateway ---------------------------------------------
+# Bedrock AgentCore / standard Bedrock are not available on this enterprise
+# account. Model calls go through the J&J GenAI API gateway, which speaks the
+# Bedrock Runtime Converse API but authenticates with an `x-api-key` header
+# instead of SigV4. We build a bedrock-runtime client pointed at the gateway
+# with dummy AWS credentials, register a before-call hook that injects the key,
+# and hand it to ChatBedrockConverse. Set BEDROCK_API_KEY in the env.
+BEDROCK_ENDPOINT_URL = os.environ.get("BEDROCK_ENDPOINT_URL", "https://genaiapigwna.jnj.com")
+BEDROCK_API_KEY = os.environ.get("BEDROCK_API_KEY", "")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-opus-4-8")
+GATEWAY_REGION = os.environ.get("AWS_REGION", "us-east-1")
+
+
+def build_gateway_model() -> ChatBedrockConverse:
+    session = boto3.Session(aws_access_key_id="dummy", aws_secret_access_key="dummy")
+    client = session.client(
+        "bedrock-runtime",
+        endpoint_url=BEDROCK_ENDPOINT_URL,
+        region_name=GATEWAY_REGION,
+    )
+
+    def _add_api_key(model, params, request_signer, **kwargs):  # noqa: ARG001
+        params["headers"]["x-api-key"] = BEDROCK_API_KEY
+
+    for op in ("Converse", "ConverseStream", "CountTokens"):
+        client.meta.events.register(f"before-call.bedrock-runtime.{op}", _add_api_key)
+    return ChatBedrockConverse(model=BEDROCK_MODEL_ID, client=client)
 
 
 class ReleaseState(TypedDict):
@@ -165,7 +194,7 @@ async def recommend(state: ReleaseState) -> dict:
     if not isinstance(decision, dict):
         decision = {"decision": str(decision)}
 
-    model = ChatBedrockConverse(model_id=os.environ["BEDROCK_MODEL_ID"])
+    model = build_gateway_model()
     prompt = [
         SystemMessage(
             content="You are a release readiness assistant. Summarize the release decision in at most four short sentences. Be factual, no markdown headers."
