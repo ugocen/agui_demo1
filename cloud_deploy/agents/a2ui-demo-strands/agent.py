@@ -12,6 +12,13 @@ Run locally (points the proxy at it via LOCAL_AGENT_URL_A2UIDEMO):
 
 import os
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # existing env vars win (override=False); .env fills the rest
+except ImportError:
+    pass
+
 # Strands' OpenTelemetry span instrumentation raises a contextvar
 # "detach ... created in a different Context" error under local async streaming,
 # which aborts the SSE mid-run (empty A2UI surface). Disable it ONLY for local
@@ -36,8 +43,13 @@ from strands.models import BedrockModel
 # and hand that client's model to Strands. Set BEDROCK_API_KEY in the env.
 BEDROCK_ENDPOINT_URL = os.environ.get("BEDROCK_ENDPOINT_URL", "https://genaiapigwna.jnj.com")
 BEDROCK_API_KEY = os.environ.get("BEDROCK_API_KEY", "")
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-opus-4-8")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
 GATEWAY_REGION = os.environ.get("AWS_REGION", "us-east-1")
+# Streaming toggle. The gateway's documented call style is per-model /invoke
+# (InvokeModel); whether it also proxies converse-stream is unverified. Set
+# BEDROCK_STREAMING=false to make Strands use non-streaming converse and rebuild
+# the AG-UI event stream locally — flip without touching code.
+BEDROCK_STREAMING = os.environ.get("BEDROCK_STREAMING", "true").strip().lower() not in ("0", "false", "no", "off")
 
 
 def build_gateway_model() -> BedrockModel:
@@ -50,6 +62,7 @@ def build_gateway_model() -> BedrockModel:
         model_id=BEDROCK_MODEL_ID,
         boto_session=session,
         endpoint_url=BEDROCK_ENDPOINT_URL,
+        streaming=BEDROCK_STREAMING,
     )
 
     def _add_api_key(model, params, request_signer, **kwargs):  # noqa: ARG001

@@ -11,6 +11,13 @@ import re
 import uuid
 from typing import Annotated, TypedDict
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # existing env vars win (override=False); .env fills the rest
+except ImportError:
+    pass
+
 import boto3
 from langchain_aws import ChatBedrockConverse
 from langchain_core.callbacks.manager import adispatch_custom_event
@@ -29,8 +36,12 @@ from langgraph.types import interrupt
 # and hand it to ChatBedrockConverse. Set BEDROCK_API_KEY in the env.
 BEDROCK_ENDPOINT_URL = os.environ.get("BEDROCK_ENDPOINT_URL", "https://genaiapigwna.jnj.com")
 BEDROCK_API_KEY = os.environ.get("BEDROCK_API_KEY", "")
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-opus-4-8")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
 GATEWAY_REGION = os.environ.get("AWS_REGION", "us-east-1")
+# Streaming toggle. The gateway's documented call style is per-model /invoke
+# (InvokeModel); whether it also proxies converse-stream is unverified. Set
+# BEDROCK_STREAMING=false to make astream() fall back to non-streaming converse.
+BEDROCK_STREAMING = os.environ.get("BEDROCK_STREAMING", "true").strip().lower() not in ("0", "false", "no", "off")
 
 
 def build_gateway_model() -> ChatBedrockConverse:
@@ -46,7 +57,19 @@ def build_gateway_model() -> ChatBedrockConverse:
 
     for op in ("Converse", "ConverseStream", "CountTokens"):
         client.meta.events.register(f"before-call.bedrock-runtime.{op}", _add_api_key)
-    return ChatBedrockConverse(model=BEDROCK_MODEL_ID, client=client)
+    # ChatBedrockConverse ALSO builds a `bedrock` control-plane client during
+    # validation (separate from our runtime `client`). With no creds it resolves
+    # the default credential chain and fails where no real AWS creds exist. Pass
+    # the same dummy static creds so that client constructs cleanly; it is never
+    # actually called at runtime (our model id is not an inference profile).
+    return ChatBedrockConverse(
+        model=BEDROCK_MODEL_ID,
+        client=client,
+        region_name=GATEWAY_REGION,
+        aws_access_key_id="dummy",
+        aws_secret_access_key="dummy",
+        disable_streaming=not BEDROCK_STREAMING,
+    )
 
 
 class ReleaseState(TypedDict):
