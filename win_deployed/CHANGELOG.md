@@ -14,6 +14,31 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.0.2] — 2026-07-14
+
+### Fixed
+
+- **`press-release-strands` and `a2ui-demo-strands` were undeployable.** They
+  bound `:8091` and `:8090`; AgentCore runs `agent.py` as the entrypoint and then
+  probes `GET /ping` on **8080** (the contract in `ARCHITECTURE.md`, and the
+  `AGUIApp.run` default). Nothing answered there, so the runtime never went
+  healthy and every invoke failed with *"Runtime initialization time exceeded.
+  Please make sure that initialization completes in 30s."* — a message that reads
+  like a slow cold start but was really "the port was never opened" (the agent
+  finishes initializing in ~1s).
+
+  The two odd ports were local side-by-side dev ports, left over from when the
+  proxy could be aimed at a local process via `LOCAL_AGENT_URL_*`. That mechanism
+  no longer exists — `agui_proxy.py` resolves `runtime_arn` from the DB catalog
+  and always SigV4s to AgentCore — so the ports only broke deployment. The three
+  agents that already bound 8080 were unaffected, which is why this looked
+  healthy: `smoke_test.py` covers only `planner` and `release`.
+
+  This shipped inside `dist/agentcore/press-release-strands.zip` and
+  `a2ui-demo-strands.zip` in 1.0.1, so **both built packages are rebuilt here**.
+  The other three agents rebuild byte-identically (reproducible builds), so only
+  the two fixed packages change.
+
 ## [1.0.1] — 2026-07-14
 
 ### Changed

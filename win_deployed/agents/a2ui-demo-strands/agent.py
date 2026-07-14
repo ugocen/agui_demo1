@@ -9,7 +9,7 @@ run. This agent's job is simply to always answer by rendering an A2UI surface.
 Run locally (serves the AgentCore contract directly; note the backend proxy only
 routes to AgentCore runtime ARNs from the catalog, so it cannot be pointed at
 this process):
-    BEDROCK_MODEL_ID=... python agent.py     # serves /invocations + /ping on :8090
+    BEDROCK_MODEL_ID=... python agent.py     # serves /invocations + /ping on :8080
 """
 
 import os
@@ -66,4 +66,4 @@ app = AGUIApp()
 app.entrypoint(build_agent())
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8090)
+    app.run(host="0.0.0.0", port=8080)
