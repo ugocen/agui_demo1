@@ -10,7 +10,6 @@ type CatalogEntry = {
   agent_id: string;
   display_name: string;
   description: string;
-  ui_mode: "static" | "a2ui";
   enabled: boolean;
   required_role: string;
   // AgentCore-sourced, read-only
@@ -24,13 +23,12 @@ type CatalogEntry = {
 
 type Editable = Pick<
   CatalogEntry,
-  "display_name" | "description" | "ui_mode" | "enabled" | "required_role"
+  "display_name" | "description" | "enabled" | "required_role"
 >;
 
 const EDITABLE_KEYS = [
   "display_name",
   "description",
-  "ui_mode",
   "enabled",
   "required_role",
 ] as const;
@@ -79,7 +77,7 @@ export function AgentCatalogAdmin() {
         setDrafts({});
         const { added, updated } = data.result;
         setSyncMsg(
-          `Added ${added.length}${added.length ? ` (${added.join(", ")})` : ""}, refreshed ${updated.length}. New AG-UI agents default to A2UI.`,
+          `Added ${added.length}${added.length ? ` (${added.join(", ")})` : ""}, refreshed ${updated.length}.`,
         );
       })
       .catch((syncError) => setError(String(syncError)))
@@ -149,8 +147,8 @@ export function AgentCatalogAdmin() {
       </div>
       <p className="hero-sub" style={{ marginBottom: 16 }}>
         Grey columns come from AgentCore and are read-only. Editable columns are
-        platform-owned — newly discovered AG-UI agents default to <strong>A2UI</strong>;
-        switch to <strong>static</strong> whenever you want.
+        platform-owned. Agents are discovered from AgentCore and used as-is — no
+        per-agent configuration needed.
       </p>
 
       {syncMsg ? <p style={{ color: "var(--text-muted)" }}>{syncMsg}</p> : null}
@@ -171,7 +169,6 @@ export function AgentCatalogAdmin() {
                 <th style={cell}>Agent</th>
                 <th style={cell}>Display name</th>
                 <th style={cell}>Description</th>
-                <th style={cell}>UI mode</th>
                 <th style={cell}>Role</th>
                 <th style={cell}>On</th>
                 <th style={roCell}>Runtime (AgentCore)</th>
@@ -184,7 +181,6 @@ export function AgentCatalogAdmin() {
             <tbody>
               {entries.map((entry) => {
                 const draft = drafts[entry.agent_id] ?? {};
-                const uiMode = (draft.ui_mode ?? entry.ui_mode) as "static" | "a2ui";
                 const dirty = Object.keys(dirtyPatch(entry)).length > 0;
                 return (
                   <tr key={entry.agent_id}>
@@ -209,18 +205,6 @@ export function AgentCatalogAdmin() {
                         value={draft.description ?? entry.description}
                         onChange={(event) => setDraft(entry.agent_id, { description: event.target.value })}
                       />
-                    </td>
-                    <td style={cell}>
-                      <select
-                        style={input}
-                        value={uiMode}
-                        onChange={(event) =>
-                          setDraft(entry.agent_id, { ui_mode: event.target.value as "static" | "a2ui" })
-                        }
-                      >
-                        <option value="static">static</option>
-                        <option value="a2ui">a2ui</option>
-                      </select>
                     </td>
                     <td style={cell}>
                       <input
