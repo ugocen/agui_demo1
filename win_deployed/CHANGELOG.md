@@ -1,0 +1,115 @@
+# Changelog — enterprise delivery package
+
+All notable changes to the enterprise package staged in `win_deployed/` are
+documented here. This versions **what we hand to the enterprise environment**,
+not the application itself.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Bump `VERSION` and add an entry here whenever the payload changes. See
+`README.md` for the delivery workflow.
+
+## [Unreleased]
+
+_Nothing yet._
+
+## [1.0.0] — 2026-07-14
+
+Initial enterprise delivery package: three standalone, zip-delivered payloads
+for a Windows 11 + WSL2 (Ubuntu) environment with no git access.
+
+### Added
+
+- **Three standalone payloads** — `backend/` (21 files), `frontend/` (34),
+  `agents/` (23); 78 in total (66 code files copied verbatim from `Phase0/` plus
+  12 hand-written enterprise files). Each is self-contained and intended to
+  become its own Bitbucket repo on arrival. There is no fork of the code.
+- **Gateway-ready agents** — all five AgentCore agents (`sdlc-planner-strands`,
+  `release-readiness-langgraph`, `bug-report-strands`, `a2ui-demo-strands`,
+  `press-release-strands`) collected under one `agents/` folder, together with
+  `scripts/build_zip.sh` and `scripts/deploy_agent.py`. They route to the GenAI
+  marketplace API gateway instead of Amazon Bedrock when both
+  `BEDROCK_ENDPOINT_URL` and `BEDROCK_API_KEY` are set in `agents/.env`; the
+  AgentCore deploy process is documented in `agents/README.md`.
+- **Windows 11 + WSL2 operator READMEs** — a `README.md` per payload, written in
+  English for an operator who did not build the app, covering prerequisites
+  (nvm/Node 20+ LTS, uv/Python 3.13, AWS credentials in `~/.aws`), configuration,
+  run commands, and the WSL gotchas: keep the code on the Linux filesystem rather
+  than `/mnt/c`, unzip inside WSL, and `chmod +x` shell scripts after unzipping.
+- **LF enforcement** — a `.gitattributes` per payload (`* text=auto eol=lf`,
+  `*.sh text eol=lf`) so shell scripts committed to Bitbucket from Windows are
+  not converted to CRLF and do not fail with `bad interpreter`.
+- **Per-payload `.gitignore`** — each repo stands alone; the monorepo-root
+  ignore rules do not travel with the zips.
+- **Config templates** — `backend/.env.example`, `agents/.env.example`,
+  `frontend/.env.local.example`, all with blanks. No real secret ships.
+- **Staging tooling** (our side, not shipped) — `scripts/_payload.sh` as the
+  single definition of what ships, `scripts/build_packages.sh` to re-sync from
+  `Phase0/`, `scripts/check_sync.sh` for a read-only drift verdict against
+  `Phase0/`, and `scripts/make_zips.sh` to produce
+  `dist/agui-{backend,frontend,agents}-<VERSION>.zip` plus `SHA256SUMS.txt`.
+- **`MANIFEST.sha256`** — sha256 of every shipped file, so we can prove and
+  compare exactly what a given package version contained.
+
+### Fixed
+
+This package depends on upstream fixes in `Phase0/` (fixed at the source, then
+re-synced, so the payload stays a verbatim copy), all required for the standalone
+enterprise layout to behave correctly:
+
+- **`frontend/next.config.ts` — `NEXT_PUBLIC_*` fallback.** Its `env: {}` block
+  overrides `.env.local` for every key it lists. In the monorepo the repo-root
+  `Phase0/.env` supplied the non-prefixed vars (`AUTH_MODE`, `BACKEND_URL`,
+  `ENTRA_*`), but a standalone frontend repo has no parent `.env`, so those keys
+  resolved empty and the app **silently booted with `AUTH_MODE=iam` — SSO off,
+  all routes open**. The config now falls back
+  (`process.env.AUTH_MODE ?? process.env.NEXT_PUBLIC_AUTH_MODE ?? "iam"`), making
+  `frontend/.env.local` with `NEXT_PUBLIC_*` names the real config source in the
+  enterprise repo. Verified by build test.
+- **`scripts/deploy_agent.py` — environment variables are now merged.**
+  AgentCore's `update_agent_runtime` **replaces** the `environmentVariables` map
+  wholesale, so a redeploy silently wiped the gateway configuration from a
+  running runtime. The script now merges onto the runtime's existing variables,
+  and passes `BEDROCK_ENDPOINT_URL`, `BEDROCK_API_KEY`, and `BEDROCK_STREAMING`
+  through when set.
+- **`backend/` — Alembic now resolves `DATABASE_URL` the same way the app does.**
+  Only `app/main.py` loaded the `.env` file, while `alembic/env.py` imports
+  `app.db` directly — so `alembic upgrade head` never saw a `DATABASE_URL` set in
+  `backend/.env` and would **silently migrate the local SQLite file while the app
+  ran against Postgres**. Env loading moved into the shared `app/env_boot.py`,
+  which both entry points now call. Verified: with `DATABASE_URL` set only in
+  `backend/.env`, the Alembic import path resolves that URL.
+- **Shipped code no longer references internal documents.** Dangling citations to
+  our planning docs were removed from `frontend/src/components/hitl/HumanInTheLoop.tsx`,
+  `agents/sdlc-planner-strands/tools.py` and `scripts/deploy_agent.py`, and the
+  stale `LOCAL_AGENT_URL_*` local-dev note (a feature no longer present in the
+  proxy) was corrected in `agents/a2ui-demo-strands/agent.py`. Monorepo-only paths
+  in `alembic.ini` and `app/db.py` comments were made layout-neutral.
+
+### Excluded by design
+
+- Our dev/agent tooling: `.claude/`, `.agents/`, `CLAUDE.md`, `AGENTS.md`.
+- Internal and non-English docs: `Phase0/README.md`, `ARCHITECTURE.md`,
+  `SUNUM-AGUI-A2UI.md`, `VERSIONS.md`, `docs/`, audit and plan documents.
+- Secrets: every real `.env`. Only `*.example` templates ship.
+- Build artifacts and local state: `node_modules/`, `.venv/`, `.next/`,
+  `build/`, `*.zip`, `*.pyc`, `*.db`, `*.sqlite3`, `*.tsbuildinfo`.
+- Git history — delivery is by zip.
+- Not needed to deploy and run: `cloud_deploy/`, `a2a-poc/`, `aws-setup/`.
+
+### Known issues
+
+- The hand-written enterprise files (READMEs, `.env` templates) have no
+  `Phase0/` counterpart and are therefore not drift-checked; they must be
+  reviewed by hand whenever the config surface changes.
+- The GenAI marketplace gateway has not been exercised end to end from here:
+  `BEDROCK_API_KEY` ships blank and the operator fills it. If the gateway does
+  not proxy `converse-stream`, set `BEDROCK_STREAMING=false` (the UI still
+  streams — AG-UI rebuilds the token stream locally).
+- The backend's CORS origin is currently fixed to `http://localhost:3000`, which
+  is fine for the local WSL run this package targets but must change if the
+  frontend is ever served from another origin.
+
+[Unreleased]: #unreleased
+[1.0.0]: #100--2026-07-14
