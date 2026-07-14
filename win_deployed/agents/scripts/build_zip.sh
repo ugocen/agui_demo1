@@ -4,6 +4,10 @@
 # Installs dependencies as linux/arm64 wheels, copies the agent sources to
 # the package root, normalizes permissions, zips from inside the package
 # folder, and fails loudly on size or architecture violations.
+#
+# The zip is REPRODUCIBLE: the same requirements.txt and sources always produce
+# byte-identical output, so a rebuild that changes nothing changes no bytes, and
+# two machines can compare checksums to prove they built the same package.
 
 set -euo pipefail
 
@@ -22,6 +26,10 @@ ZIP_PATH="$PHASE0_DIR/build/$AGENT_NAME.zip"
 MAX_ZIP_MB=250
 MAX_UNZIPPED_MB=750
 PYTHON_VERSION=3.13
+# Fixed timestamp stamped on every packaged file. The zip format stores an mtime
+# per entry, so without pinning it every build differs. Must be >= 1980 (the zip
+# epoch). The value is arbitrary; only its stability matters.
+SOURCE_DATE=202001010000
 
 if [ ! -f "$AGENT_DIR/requirements.txt" ]; then
   echo "FAIL: $AGENT_DIR/requirements.txt not found" >&2
@@ -67,8 +75,20 @@ if [ "$unzipped_mb" -gt "$MAX_UNZIPPED_MB" ]; then
   exit 1
 fi
 
-echo "==> Zipping from inside the package folder"
-(cd "$PACKAGE_DIR" && zip -qr "$ZIP_PATH" .)
+echo "==> Making the package reproducible"
+# Bytecode caches are build-time noise: they embed source paths/timestamps and
+# would differ per build. Python regenerates them at runtime.
+find "$PACKAGE_DIR" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
+find "$PACKAGE_DIR" -type f -name '*.pyc' -delete 2>/dev/null || true
+# Pin every mtime (zip stores one per entry). -h so a symlink's own timestamp is
+# set instead of its target's.
+find "$PACKAGE_DIR" -exec touch -h -t "$SOURCE_DATE" {} +
+
+echo "==> Zipping from inside the package folder (reproducible)"
+# -X drops extra attributes (uid/gid, atime, Finder metadata) that vary by
+# machine. The sorted file list pins entry ORDER, which plain `zip -r` would
+# otherwise take from filesystem traversal order.
+( cd "$PACKAGE_DIR" && find . -mindepth 1 | LC_ALL=C sort | zip -qX "$ZIP_PATH" -@ )
 
 zip_mb=$(du -m "$ZIP_PATH" | cut -f1)
 if [ "$zip_mb" -gt "$MAX_ZIP_MB" ]; then
