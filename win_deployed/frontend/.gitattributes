@@ -1,0 +1,32 @@
+# Normalize all text files to LF in the repository.
+#
+# This repo is cloned onto Windows machines but the app runs inside WSL2/Ubuntu.
+# Without this, Git can check shell scripts out with CRLF line endings and they
+# fail inside WSL with "bad interpreter: /bin/bash^M: no such file or directory".
+#
+# Also run this once in WSL so Git never rewrites endings on checkout:
+#     git config core.autocrlf false
+
+* text=auto eol=lf
+
+# Files that MUST stay LF regardless of platform.
+*.sh text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+.env* text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Binary files — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

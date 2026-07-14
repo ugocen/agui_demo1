@@ -1,7 +1,11 @@
 # --- Secrets (never commit) ---
 .env
 .env.*
+# Templates are safe and must stay tracked. `!.env.example` does NOT cover
+# `.env.local.example` (the `.env.*` rule above matches it), so negate it too —
+# otherwise the frontend package ships with no config template.
 !.env.example
+!.env.local.example
 *.pem
 *.key
 

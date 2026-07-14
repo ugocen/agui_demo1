@@ -1,0 +1,19 @@
+# Normalize all text files to LF in the repository.
+# Critical: scripts/build_zip.sh runs inside WSL2 (Ubuntu). If it is checked out
+# with CRLF line endings, bash fails with "bad interpreter: /usr/bin/env bash^M".
+* text=auto eol=lf
+
+# Be explicit for the file types that must never become CRLF.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.txt   text eol=lf
+*.md    text eol=lf
+.env*   text eol=lf
+
+# Binary — never touch these.
+*.zip   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.so    binary
+*.whl   binary

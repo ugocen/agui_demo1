@@ -1,0 +1,54 @@
+# --- Secrets / local configuration -------------------------------------------
+# .env holds AWS region, Entra tenant/client ids and any DB credentials.
+# Never commit it. Commit .env.example instead.
+.env
+.env.*
+!.env.example
+
+# --- Local database -----------------------------------------------------------
+# The default SQLite platform DB (backend/phase0.db) is created automatically at
+# startup and is machine-local state, not source.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Python -------------------------------------------------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# --- Tooling caches -----------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# --- Logs ---------------------------------------------------------------------
+*.log
+
+# --- Editors / OS cruft -------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+._*
+Thumbs.db
+desktop.ini

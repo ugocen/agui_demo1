@@ -1,0 +1,24 @@
+# Secrets — .env holds the live GenAI gateway API key (BEDROCK_API_KEY) and the
+# runtime ARNs deploy_agent.py writes back. Never commit it.
+# `.env.*` matters as much as `.env`: a routine `cp .env .env.bak` before a
+# redeploy, or an editor writing `.env.save`, must not leak the key into the repo.
+.env
+.env.*
+!.env.example
+
+# Build output produced by scripts/build_zip.sh
+build/
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editors / OS
+.vscode/
+.idea/
+*.log
+.DS_Store
+._*
+Thumbs.db
