@@ -52,6 +52,7 @@ while IFS= read -r so_file; do
   info="$(file -b "$so_file")"
   case "$info" in
     *aarch64*) ;;
+    *ARM64*) ;;
     *) echo "NOT ARM64: $so_file -> $info" >&2; bad=1 ;;
   esac
 done < <(find "$PACKAGE_DIR" -type f -name "*.so*")

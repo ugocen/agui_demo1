@@ -4,13 +4,18 @@ Serves POST /invocations (SSE), GET /ping and /ws on port 8080 via the
 official bedrock-agentcore AGUIApp helper.
 """
 
-import os
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # existing env vars win (override=False); .env fills the rest
+except ImportError:
+    pass
 
 from ag_ui_strands import StrandsAgent
 from bedrock_agentcore.runtime.ag_ui import AGUIApp
 from strands import Agent
-from strands.models import BedrockModel
 
+from model_factory import build_strands_model
 from tools import show_estimates, show_user_stories
 
 SYSTEM_PROMPT = """You are an SDLC planning assistant for backlog refinement and sprint planning.
@@ -21,7 +26,7 @@ Keep chat text short, the cards carry the detail."""
 
 
 def build_agent() -> StrandsAgent:
-    model = BedrockModel(model_id=os.environ["BEDROCK_MODEL_ID"])
+    model = build_strands_model()
     agent = Agent(
         model=model,
         system_prompt=SYSTEM_PROMPT,
