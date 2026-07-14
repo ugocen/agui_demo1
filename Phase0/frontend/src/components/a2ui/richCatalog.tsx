@@ -168,7 +168,6 @@ function ChartView({
             fill: chartType === "line" ? false : undefined,
           };
         });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         instance = new Chart(canvasRef.current, {
           type: chartType as never,
           data: { labels, datasets: styled as never },

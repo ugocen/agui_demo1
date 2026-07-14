@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { useAccessToken, useMe } from "@/components/AuthGate";
 import { BACKEND_URL } from "@/lib/config";
@@ -41,6 +41,35 @@ export function useCatalog(): CatalogAgent[] {
   return agents;
 }
 
+// Threads live in localStorage (see lib/threads) and change via a custom
+// "phase0-threads-changed" event. Subscribe the React-recommended way with
+// useSyncExternalStore — no setState inside an effect. The snapshot is cached
+// and only invalidated when the event fires, so getSnapshot returns a stable
+// reference between changes (required to avoid an infinite render loop). The
+// server snapshot is empty, which matches SSR and avoids a hydration mismatch.
+const NO_THREADS: ThreadRecord[] = [];
+let threadsCache: ThreadRecord[] | null = null;
+
+function getThreadsSnapshot(): ThreadRecord[] {
+  if (threadsCache === null) {
+    threadsCache = listThreads();
+  }
+  return threadsCache;
+}
+
+function subscribeThreads(onChange: () => void): () => void {
+  const handler = () => {
+    threadsCache = null;
+    onChange();
+  };
+  window.addEventListener("phase0-threads-changed", handler);
+  return () => window.removeEventListener("phase0-threads-changed", handler);
+}
+
+function useThreads(): ThreadRecord[] {
+  return useSyncExternalStore(subscribeThreads, getThreadsSnapshot, () => NO_THREADS);
+}
+
 function timeLabel(timestamp: number): string {
   const date = new Date(timestamp);
   return date.toLocaleString(undefined, {
@@ -56,18 +85,10 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const agents = useCatalog();
   const me = useMe();
-  const [threads, setThreads] = useState<ThreadRecord[]>([]);
+  const threads = useThreads();
 
   const activeAgentId = pathname.startsWith("/agents/") ? pathname.split("/")[2] : null;
   const activeThreadId = searchParams.get("thread");
-
-  const refreshThreads = useCallback(() => setThreads(listThreads()), []);
-
-  useEffect(() => {
-    refreshThreads();
-    window.addEventListener("phase0-threads-changed", refreshThreads);
-    return () => window.removeEventListener("phase0-threads-changed", refreshThreads);
-  }, [refreshThreads]);
 
   return (
     <div className="workspace">

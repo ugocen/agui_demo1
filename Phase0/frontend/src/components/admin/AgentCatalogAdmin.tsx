@@ -49,13 +49,17 @@ export function AgentCatalogAdmin() {
   }, [token]);
 
   const load = useCallback(() => {
-    setError(null);
+    // No synchronous setState here — the effect below calls load() on mount,
+    // and setState is only reached inside these async callbacks.
     fetch(`${BACKEND_URL}/api/admin/catalog`, { headers: authHeaders() })
       .then(async (response) => {
         if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
         return response.json();
       })
-      .then(setEntries)
+      .then((data: CatalogEntry[]) => {
+        setEntries(data);
+        setError(null);
+      })
       .catch((fetchError) => setError(String(fetchError)));
   }, [authHeaders]);
 
