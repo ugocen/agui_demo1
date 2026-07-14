@@ -21,7 +21,7 @@
  * with an in-browser round-trip.
  */
 
-import { useHumanInTheLoop } from "@copilotkit/react-core/v2";
+import { useHumanInTheLoop, useInterrupt } from "@copilotkit/react-core/v2";
 import { useState } from "react";
 import { z } from "zod/v3";
 
@@ -103,34 +103,41 @@ function ApprovalCard({
 }
 
 // 2) request_go_nogo (Release Readiness) → { decision: "go"|"no-go", note? }
-function DecisionCard({
-  status,
-  respond,
-  args,
+// Release go/no-go arrives as a LangGraph interrupt() (not a client-proxy tool),
+// so it has no `status`/`respond` — it uses `resolve` and tracks its own done state.
+function GoNoGoInterrupt({
+  recommendation,
+  reasons,
+  resolve,
 }: {
-  status: string;
-  respond?: Respond;
-  args: { recommendation?: string; reasons?: string[] };
+  recommendation?: string;
+  reasons?: string[];
+  resolve: Respond;
 }) {
   const [note, setNote] = useState("");
-  const done = isDone(status);
+  const [done, setDone] = useState(false);
+  const decide = (decision: "go" | "no-go") => {
+    if (done) return;
+    setDone(true);
+    resolve({ decision, note });
+  };
   return (
     <div style={box}>
       <strong>Go / No-Go</strong>
       <div style={{ marginTop: 4 }}>
-        Recommendation: <b>{args.recommendation}</b>
+        Recommendation: <b>{recommendation}</b>
       </div>
       <ul style={{ margin: "6px 0", paddingLeft: 18 }}>
-        {(args.reasons ?? []).map((r, i) => (
+        {(reasons ?? []).map((r, i) => (
           <li key={i}>{r}</li>
         ))}
       </ul>
       <Note value={note} onChange={setNote} disabled={done} />
       <div style={row}>
-        <button style={btn} disabled={done || !respond} onClick={() => respond?.({ decision: "go", note })}>
+        <button style={btn} disabled={done} onClick={() => decide("go")}>
           Go
         </button>
-        <button style={btn} disabled={done || !respond} onClick={() => respond?.({ decision: "no-go", note })}>
+        <button style={btn} disabled={done} onClick={() => decide("no-go")}>
           No-Go
         </button>
       </div>
@@ -207,7 +214,7 @@ function EditableForm({
 /**
  * Registers every HITL client-proxy tool. Render inside <CopilotKitProvider>.
  */
-export function HumanInTheLoop() {
+export function HumanInTheLoop({ agentId }: { agentId: string }) {
   // 1) SDLC Planner — ticket creation approval
   useHumanInTheLoop({
     name: "request_ticket_approval",
@@ -221,15 +228,26 @@ export function HumanInTheLoop() {
     render: (p) => <ApprovalCard status={p.status} respond={p.respond as Respond} args={p.args as ApprovalArgs} />,
   });
 
-  // 2) Release Readiness — go/no-go decision (LangGraph interrupt)
-  useHumanInTheLoop({
-    name: "request_go_nogo",
-    description: "Ask the user for the final go / no-go release decision.",
-    parameters: z.object({
-      recommendation: z.enum(["go", "no-go"]).describe("The system's recommendation"),
-      reasons: z.array(z.string()).describe("Why this recommendation"),
-    }),
-    render: (p) => <DecisionCard status={p.status} respond={p.respond as Respond} args={p.args as DecisionArgs} />,
+  // 2) Release Readiness — go/no-go is a LangGraph interrupt(), NOT a Strands
+  // client-proxy tool, so it surfaces via useInterrupt (not useHumanInTheLoop).
+  // graph.py sends interrupt({tool, recommendation, reasons}) and reads {decision, note}.
+  useInterrupt({
+    agentId,
+    render: ({ event, resolve }) => {
+      const v = (event?.value ?? {}) as {
+        tool?: string;
+        recommendation?: string;
+        reasons?: string[];
+      };
+      if (v.tool && v.tool !== "request_go_nogo") return <></>;
+      return (
+        <GoNoGoInterrupt
+          recommendation={v.recommendation}
+          reasons={v.reasons}
+          resolve={resolve as Respond}
+        />
+      );
+    },
   });
 
   // 3) Bug Report — review/edit the proposed report, then submit
@@ -307,5 +325,4 @@ export function HumanInTheLoop() {
 }
 
 type ApprovalArgs = { summary?: string; tickets?: { title?: string; points?: number }[] };
-type DecisionArgs = { recommendation?: string; reasons?: string[] };
 type ChoiceArgs = { question?: string; options?: string[] };

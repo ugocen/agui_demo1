@@ -124,7 +124,7 @@ export function AgentChat({
       a2ui={{ catalog: richCatalog, includeSchema: true }}
     >
       <FallbackRender />
-      <HumanInTheLoop />
+      <HumanInTheLoop agentId={agentId} />
       <ThreadTitleTracker agentId={agentId} threadId={threadId} />
       <div className="chat-body">
         <div className="chat-region">
