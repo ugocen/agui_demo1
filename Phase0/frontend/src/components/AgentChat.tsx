@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { updateThreadTitle, upsertThread } from "@/lib/threads";
 import { useAccessToken } from "@/components/AuthGate";
 import { richCatalog } from "@/components/a2ui/richCatalog";
+import { HumanInTheLoop } from "@/components/hitl/HumanInTheLoop";
 
 // Generic chat surface for ANY agent. There are no per-agent, hand-authored
 // cards and no id/ui_mode special-casing — every agent renders generatively via
@@ -123,6 +124,7 @@ export function AgentChat({
       a2ui={{ catalog: richCatalog, includeSchema: true }}
     >
       <FallbackRender />
+      <HumanInTheLoop agentId={agentId} />
       <ThreadTitleTracker agentId={agentId} threadId={threadId} />
       <div className="chat-body">
         <div className="chat-region">
