@@ -36,6 +36,15 @@ dist/
 !win_deployed/dist/*.zip
 !win_deployed/dist/SHA256SUMS.txt
 
+# ...but NOT the built AgentCore packages. Those are deliberately out-of-band:
+#   - ~151 MB total (deps vendored as linux/arm64 wheels),
+#   - non-deterministic: build_zip.sh packs with `zip -qr` (no -X), so pip mtimes
+#     are embedded and every rebuild yields different bytes — tracking them would
+#     add ~151 MB of new blobs to history on every single build,
+#   - fully rebuildable from the 36 KB source delivery zip via build_zip.sh.
+# Transfer them out-of-band and verify with their SHA256SUMS.txt.
+win_deployed/dist/agentcore/
+
 # --- Local databases ---
 *.db
 *.sqlite3
