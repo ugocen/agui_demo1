@@ -1,0 +1,3 @@
+44f46c4d4f6c9ffece8deaaed438fa7c69ede08e1182c495aa16c30ffd557032  ./agui-agents-1.0.0.zip
+fd11fe48d9cb2ff97a2d16ad64ee5e2d5f5b1a0999233e536382874d3685bafd  ./agui-backend-1.0.0.zip
+fd4052f6a2ac56f38b0c859203bfe5c0f8fb72886ebe5cf452672f2d178689ca  ./agui-frontend-1.0.0.zip
