@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { AuthGate, useAccessToken } from "@/components/AuthGate";
 import {
@@ -28,26 +28,39 @@ function DiscoveredAgents({ agents }: { agents: CatalogAgent[] }) {
   const token = useAccessToken();
   const router = useRouter();
   const [runtimes, setRuntimes] = useState<Runtime[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  // A scan runs on mount, so start in the loading state.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const scan = () => {
-    setLoading(true);
-    setError(null);
+  // The fetch itself — setState is only reached inside async callbacks, so this
+  // is safe to call from an effect without a synchronous setState-in-effect.
+  const fetchRuntimes = useCallback(() => {
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-    fetch(`${BACKEND_URL}/api/agentcore/runtimes`, { headers })
+    return fetch(`${BACKEND_URL}/api/agentcore/runtimes`, { headers })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`${response.status} ${await response.text()}`);
         }
         return response.json();
       })
-      .then(setRuntimes)
+      .then((data: Runtime[]) => {
+        setRuntimes(data);
+        setError(null);
+      })
       .catch((fetchError) => setError(String(fetchError)))
       .finally(() => setLoading(false));
+  }, [token]);
+
+  // A manual rescan is a user event, where synchronous loading feedback is fine.
+  const scan = () => {
+    setLoading(true);
+    setError(null);
+    fetchRuntimes();
   };
 
-  useEffect(scan, [token]);
+  useEffect(() => {
+    fetchRuntimes();
+  }, [fetchRuntimes]);
 
   const catalogForArn = (arn: string): CatalogAgent | undefined =>
     agents.find((agent) => agent.runtime_arn === arn);
