@@ -32,12 +32,23 @@ code — see invariant 7. Deep background: `Phase0/README.md` and
    Entra/Graph access token and roles are derived from AD-group membership
    **server-side** (`app/auth.py`) — never trust the client. Layer B (backend
    ↔ AgentCore) is **always SigV4**, independent of Layer A.
-4. **Agents deploy to AgentCore as direct-code zips; the model provider is
-   env-driven.** Each agent's `model_factory.py`
-   (`build_strands_model()` / `build_langchain_model()`) defaults to Amazon
-   Bedrock (SigV4) and switches to an enterprise `x-api-key` gateway only when
-   both `BEDROCK_ENDPOINT_URL` and `BEDROCK_API_KEY` are set. Never hardcode a
-   provider or model id.
+4. **Agents deploy to AgentCore as direct-code zips, and the LLM provider is
+   forked, not configured.** Each environment has exactly one provider, so the
+   choice is made by *which copy you are in*, never at runtime:
+   - `Phase0/agents/<a>/model_factory.py` — **Amazon Bedrock only.** No gateway
+     code path exists; setting `BEDROCK_ENDPOINT_URL` here does nothing.
+   - `cloud_deploy/agents/<a>/model_factory.py` — **GenAI marketplace gateway
+     only** (`x-api-key`). No Bedrock code path exists; the endpoint and key are
+     mandatory and it refuses to build without them.
+
+   The enterprise account has no Bedrock model access, and the previous
+   env-driven switch meant one missing variable silently sent enterprise traffic
+   to Amazon Bedrock. The fork makes that unreachable rather than merely
+   discouraged. **`model_factory.py` is the ONLY file allowed to differ between
+   the two copies** — an agent change (prompt, tools, graph, requirements) must
+   land in both. Run `cloud_deploy/scripts/sync_agents.sh` to propagate, and
+   `cloud_deploy/scripts/check_agent_sync.sh` to prove no drift and that neither
+   side grew the other's provider. Never hardcode a model id.
 5. **Generative UI is A2UI, rendered generically** through the rich catalog
    (`Phase0/frontend/src/components/a2ui/richCatalog.tsx`). Adding a UI
    capability means extending that catalog — never adding per-agent React
@@ -46,10 +57,16 @@ code — see invariant 7. Deep background: `Phase0/README.md` and
    `Phase0/frontend/AGENTS.md`, read `node_modules/next/dist/docs/` before
    writing any Next.js code — APIs and conventions may differ from training
    data.
-7. **`cloud_deploy/` is an enterprise config overlay (env only).** The
-   application code lives once, in `Phase0/`. `cloud_deploy/` never forks it —
-   it only supplies enterprise env files (gateway URL/key, Entra client id,
-   per-component `.env`s). See `cloud_deploy/README.md`.
+7. **`cloud_deploy/` is the enterprise side: env + the agent fork.** The
+   backend and frontend live once, in `Phase0/` — `cloud_deploy/` never forks
+   them and only supplies their enterprise env files (Entra client id,
+   per-component `.env`s). The **agents are the one deliberate exception**
+   (invariant 4): `cloud_deploy/agents/<a>/` is a permanent second copy whose
+   `model_factory.py` is gateway-only. Everything else in that copy is kept
+   byte-identical to `Phase0/agents/<a>/` by the sync + gate scripts. The
+   enterprise delivery in `win_deployed/` therefore packages **backend/frontend
+   from `Phase0/` and agents from `cloud_deploy/`**. See
+   `cloud_deploy/README.md`.
 
 ## Commands
 
@@ -89,11 +106,20 @@ npm run build && npm run lint
 LOCAL_AGENT_URL_RELEASE=http://127.0.0.1:8080/invocations
 ```
 
-Agents currently live under `Phase0/agents/<name>/`: `sdlc-planner-strands`,
+Agents live in **two copies** (invariant 4): `Phase0/agents/<name>/` (Bedrock)
+and `cloud_deploy/agents/<name>/` (gateway). Both hold `sdlc-planner-strands`,
 `release-readiness-langgraph`, `bug-report-strands`, `a2ui-demo-strands`,
 `press-release-strands`. Each is an independent AgentCore zip (its own
 `requirements.txt` + sources at the zip root) with its own copy of
-`model_factory.py` — keep the copies identical when you edit one.
+`model_factory.py` — keep those identical *within* a copy when you edit one.
+
+**Every agent change must land in both copies:**
+
+```bash
+# after editing anything under Phase0/agents/
+./cloud_deploy/scripts/sync_agents.sh        # copies all but model_factory.py
+./cloud_deploy/scripts/check_agent_sync.sh   # gate: no drift, no provider bleed
+```
 
 ## Where things live
 
@@ -105,8 +131,13 @@ Agents currently live under `Phase0/agents/<name>/`: `sdlc-planner-strands`,
   `Phase0/frontend/src/components/a2ui/richCatalog.tsx` (see the
   `add-a2ui-component` workflow) — never add per-agent frontend code.
 - **Add an agent:** scaffold under `Phase0/agents/<name>/` (see the
-  `new-agent` workflow) — the catalog picks it up automatically on the next
-  AgentCore sync; there is no frontend or backend code to write per agent.
+  `new-agent` workflow), then add it to `AGENT_DIRS` in
+  `cloud_deploy/scripts/_agents.sh` and run `sync_agents.sh` so the enterprise
+  copy exists too — the catalog picks it up automatically on the next AgentCore
+  sync; there is no frontend or backend code to write per agent.
+- **Change the LLM provider:** `Phase0/agents/*/model_factory.py` (Bedrock) or
+  `cloud_deploy/agents/*/model_factory.py` (gateway) — never both in one edit,
+  and never add the other's provider to either (the gate rejects it).
 - **AWS facts and setup:** `.agents/rules/40-aws.md`, `Phase0/aws-setup/`.
 
 ## Verify
@@ -114,6 +145,10 @@ Agents currently live under `Phase0/agents/<name>/`: `sdlc-planner-strands`,
 Before considering a change complete:
 
 - `cd Phase0 && ruff check agents backend/app --exclude '**/.venv/**'` — clean.
+- `ruff check cloud_deploy/agents` — clean (the enterprise agent fork).
+- `./cloud_deploy/scripts/check_agent_sync.sh` — OK. Required after **any**
+  agent change: it is what keeps the two copies one product, and what proves
+  neither side can reach the other's LLM provider.
 - `cd Phase0/frontend && npm run build && npm run lint` — green.
 
 `scripts/smoke_test.py` needs a running backend and real AWS credentials

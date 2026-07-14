@@ -1,20 +1,18 @@
-"""Model factory — selects the LLM provider from the environment.
+"""Model factory — Amazon Bedrock (SigV4).
 
-A single agent codebase runs unchanged in both deployment targets:
+Phase0 runs in our own AWS account, where Amazon Bedrock is the only LLM
+provider, so this file has no enterprise-gateway code path: no environment
+variable can make a Phase0 agent talk to the marketplace gateway.
 
-* Default (personal / AgentCore)  — Amazon Bedrock with the host's default
-  credential chain (SigV4). Used whenever gateway mode is not configured.
-* Enterprise gateway              — a Bedrock-Runtime-compatible API gateway
-  that authenticates with an ``x-api-key`` header instead of SigV4 (e.g. an
-  internal GenAI marketplace gateway). Activated ONLY when both
-  ``BEDROCK_ENDPOINT_URL`` and ``BEDROCK_API_KEY`` are set.
+The enterprise counterpart at cloud_deploy/agents/<agent>/model_factory.py is the
+mirror image — gateway-only, with no Bedrock path. They are the ONLY files that
+may differ between the two copies; cloud_deploy/scripts/check_agent_sync.sh keeps
+everything else identical and proves neither side grew the other's provider.
+See AGENTS.md invariant 4.
 
 Environment variables:
-  BEDROCK_MODEL_ID      model id (default: Claude Haiku 4.5 global profile)
-  BEDROCK_ENDPOINT_URL  gateway base URL — set with BEDROCK_API_KEY to enable gateway mode
-  BEDROCK_API_KEY       gateway key, injected as the ``x-api-key`` header
-  AWS_REGION            region (gateway: only the ignored SigV4 scope; default us-east-1)
-  BEDROCK_STREAMING     "false"/"0"/"no"/"off" to disable ConverseStream (default: stream)
+  BEDROCK_MODEL_ID  model id (default: Claude Haiku 4.5 global profile)
+  AWS_REGION        resolved by the standard AWS credential/config chain
 
 This file is intentionally self-contained and duplicated into each agent
 directory: every agent is packaged as an independent AgentCore zip (its own
@@ -27,92 +25,19 @@ import os
 DEFAULT_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
-def _endpoint() -> str:
-    return os.environ.get("BEDROCK_ENDPOINT_URL", "").strip()
-
-
-def _api_key() -> str:
-    return os.environ.get("BEDROCK_API_KEY", "").strip()
-
-
-def use_gateway() -> bool:
-    """Gateway mode is on only when both the endpoint and the key are set."""
-    return bool(_endpoint() and _api_key())
-
-
 def _model_id() -> str:
     return os.environ.get("BEDROCK_MODEL_ID", DEFAULT_MODEL_ID)
 
 
-def _region() -> str:
-    return os.environ.get("AWS_REGION", "us-east-1")
-
-
-def _streaming() -> bool:
-    return os.environ.get("BEDROCK_STREAMING", "true").strip().lower() not in ("0", "false", "no", "off")
-
-
 def build_strands_model():
-    """Build a Strands ``BedrockModel`` for the active provider."""
+    """Build a Strands ``BedrockModel`` on Amazon Bedrock."""
     from strands.models import BedrockModel
 
-    if not use_gateway():
-        return BedrockModel(model_id=_model_id())
-
-    import boto3
-
-    api_key = _api_key()
-    session = boto3.Session(
-        aws_access_key_id="dummy",
-        aws_secret_access_key="dummy",
-        region_name=_region(),
-    )
-    model = BedrockModel(
-        model_id=_model_id(),
-        boto_session=session,
-        endpoint_url=_endpoint(),
-        streaming=_streaming(),
-    )
-
-    def _add_api_key(model, params, request_signer, **kwargs):  # noqa: ARG001
-        params["headers"]["x-api-key"] = api_key
-
-    events = model.client.meta.events
-    for op in ("Converse", "ConverseStream", "CountTokens"):
-        events.register(f"before-call.bedrock-runtime.{op}", _add_api_key)
-    return model
+    return BedrockModel(model_id=_model_id())
 
 
 def build_langchain_model():
-    """Build a langchain-aws ``ChatBedrockConverse`` for the active provider."""
+    """Build a langchain-aws ``ChatBedrockConverse`` on Amazon Bedrock."""
     from langchain_aws import ChatBedrockConverse
 
-    if not use_gateway():
-        return ChatBedrockConverse(model_id=_model_id())
-
-    import boto3
-
-    api_key = _api_key()
-    session = boto3.Session(aws_access_key_id="dummy", aws_secret_access_key="dummy")
-    client = session.client(
-        "bedrock-runtime",
-        endpoint_url=_endpoint(),
-        region_name=_region(),
-    )
-
-    def _add_api_key(model, params, request_signer, **kwargs):  # noqa: ARG001
-        params["headers"]["x-api-key"] = api_key
-
-    for op in ("Converse", "ConverseStream", "CountTokens"):
-        client.meta.events.register(f"before-call.bedrock-runtime.{op}", _add_api_key)
-    # ChatBedrockConverse also builds a `bedrock` control-plane client during
-    # validation; with dummy static creds it constructs cleanly and is never
-    # called at runtime (our model id is not an inference profile).
-    return ChatBedrockConverse(
-        model=_model_id(),
-        client=client,
-        region_name=_region(),
-        aws_access_key_id="dummy",
-        aws_secret_access_key="dummy",
-        disable_streaming=not _streaming(),
-    )
+    return ChatBedrockConverse(model_id=_model_id())

@@ -1,26 +1,47 @@
-# cloud_deploy — enterprise overlay
+# cloud_deploy — the enterprise side
 
-This directory is **not a separate application.** The application (backend,
-frontend, agents) lives once in [`../Phase0`](../Phase0) and is the single
-source of truth. `cloud_deploy/` only carries the **enterprise-specific
-configuration** needed to run that same code on the enterprise (J&J) account.
+This directory carries the **enterprise-specific configuration** for the J&J
+account, plus the one part of the application that is deliberately forked: the
+**agents**. The backend and frontend are not forked — they live once in
+[`../Phase0`](../Phase0) and run unchanged here.
 
 ## The one real difference: the LLM provider
 
-| | Personal / dev (Phase 0 default) | Enterprise (this overlay) |
+| | Personal / dev (`Phase0/`) | Enterprise (here) |
 |---|---|---|
-| Model calls | Amazon Bedrock via AgentCore, **SigV4** (host credential chain) | **J&J GenAI API gateway**, `x-api-key` header |
+| Model calls | Amazon Bedrock via AgentCore, **SigV4** | **J&J GenAI API gateway**, `x-api-key` |
 | Default model | Claude Haiku 4.5 | Claude Sonnet 4.5 |
 | AWS account | personal | enterprise (different account) |
 | Runtime | **AgentCore** (identical) | **AgentCore** (identical) |
-| Backend / frontend / agent code | `Phase0/*` | **the same `Phase0/*`** |
+| Backend / frontend | `Phase0/*` | **the same `Phase0/*`** |
+| Agents | `Phase0/agents/*` (Bedrock-only) | `cloud_deploy/agents/*` (gateway-only) |
 
-Everything except the model provider is byte-for-byte the same code. The
-provider is chosen **purely from the environment** by
-[`Phase0/agents/model_factory.py`](../Phase0/agents/model_factory.py):
+Each environment has exactly **one** LLM provider, so the provider is not
+selected at runtime — it is selected by *which copy you are in*:
 
-* Leave `BEDROCK_ENDPOINT_URL` / `BEDROCK_API_KEY` empty → **Bedrock** (personal).
-* Set **both** → **gateway** (enterprise). No code change either way.
+* [`Phase0/agents/<a>/model_factory.py`](../Phase0/agents) — Bedrock only. It has
+  no gateway code; setting `BEDROCK_ENDPOINT_URL` there does nothing.
+* [`agents/<a>/model_factory.py`](agents) — gateway only. It has no Bedrock code,
+  requires the endpoint and key, and refuses to build without them.
+
+**Why not one env-driven file?** That is what this used to be, and it meant a
+single missing or mistyped variable silently sent enterprise traffic to Amazon
+Bedrock — an account that has no Bedrock model access, on data that must not go
+there. A fallback that must never fire is better deleted than configured: now the
+code path does not exist, so no environment can reach it.
+
+**The cost, and how it is paid:** two copies can drift. `model_factory.py` is the
+**only** file allowed to differ; everything else (prompt, tools, graph,
+requirements) must land in both. That is enforced, not documented:
+
+```bash
+./scripts/sync_agents.sh        # propagate a Phase0 agent change into this copy
+./scripts/check_agent_sync.sh   # gate: no drift, and no provider bleed either way
+```
+
+The gate fails if an agent differs anywhere but `model_factory.py`, if the
+enterprise factory stops requiring the gateway (i.e. grows a Bedrock fallback),
+or if the Phase0 factory grows a gateway path.
 
 ## What's here
 
