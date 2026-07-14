@@ -1,7 +1,11 @@
 # --- Secrets (never commit) ---
 .env
 .env.*
+# Templates are safe and must stay tracked. `!.env.example` does NOT cover
+# `.env.local.example` (the `.env.*` rule above matches it), so negate it too —
+# otherwise the frontend package ships with no config template.
 !.env.example
+!.env.local.example
 *.pem
 *.key
 
@@ -19,6 +23,27 @@ node_modules/
 build/
 dist/
 *.zip
+
+# --- Enterprise delivery artifacts (intentionally tracked) ---
+# The exact bytes handed to the enterprise side are versioned so we can always
+# answer "what did we actually ship?" and diff against what they unzipped.
+# Safe to track: the payloads carry no secrets (only *.example templates), and
+# `make_zips.sh` uses `zip -qrX`, so regeneration is byte-for-byte deterministic
+# and does not create spurious diffs.
+# NOTE: `dist/` above excludes the directory, and git cannot re-include a file
+# whose parent directory is excluded — so the directory must be negated first.
+!win_deployed/dist/
+!win_deployed/dist/*.zip
+!win_deployed/dist/SHA256SUMS.txt
+
+# ...including the built AgentCore packages (~151 MB, deps vendored as
+# linux/arm64 wheels). Tracking build output is only sane because build_zip.sh is
+# reproducible as of package v1.0.1: fixed timestamps, sorted entry order and
+# `zip -X` mean an unchanged rebuild produces byte-identical zips, so re-running
+# it adds NO new blobs. A diff here therefore means the payload really changed.
+!win_deployed/dist/agentcore/
+!win_deployed/dist/agentcore/*.zip
+!win_deployed/dist/agentcore/SHA256SUMS.txt
 
 # --- Local databases ---
 *.db

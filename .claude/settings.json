@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ruff:*)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+      "Bash(npm run dev)",
+      "Bash(npm install:*)",
+      "Bash(uvicorn:*)",
+      "Bash(uv run:*)",
+      "Bash(uv pip install:*)",
+      "Bash(uv venv:*)",
+      "Bash(python scripts/deploy_agent.py:*)",
+      "Bash(python scripts/smoke_test.py:*)",
+      "Bash(uv run scripts/deploy_agent.py:*)",
+      "Bash(uv run scripts/smoke_test.py:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(curl localhost:*)",
+      "Bash(curl -s localhost:*)",
+      "Bash(./scripts/build_zip.sh:*)"
+    ],
+    "deny": [
+      "Bash(npm install -g:*)",
+      "Bash(npm i -g:*)",
+      "Bash(npm install --global:*)",
+      "Bash(pnpm add -g:*)",
+      "Bash(pnpm install -g:*)",
+      "Bash(yarn global add:*)",
+      "Bash(pip install --user:*)",
+      "Bash(pip3 install --user:*)",
+      "Bash(sudo pip:*)",
+      "Bash(sudo pip3:*)",
+      "Bash(sudo npm:*)",
+      "Bash(sudo pnpm:*)"
+    ]
+  }
+}

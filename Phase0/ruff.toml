@@ -1,0 +1,10 @@
+# Ruff configuration for the Phase 0 backend + agents.
+# Defaults otherwise; this file only records intentional, scoped exceptions so
+# `ruff check agents backend/app` is clean and reproducible.
+
+[lint.per-file-ignores]
+# main.py must call load_dotenv() BEFORE importing app.* so that component-local
+# env (backend/.env > Phase0/.env) is in os.environ when those modules read it at
+# import time. That deliberately places module-level imports after a statement,
+# which E402 flags — allow it here only.
+"backend/app/main.py" = ["E402"]
