@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useAccessToken, useMe } from "@/components/AuthGate";
 import { BACKEND_URL } from "@/lib/config";
-import { listThreads, newThreadId, ThreadRecord } from "@/lib/threads";
+import { listThreads, ThreadRecord } from "@/lib/threads";
 
 export type CatalogAgent = {
   id: string;
@@ -14,17 +14,16 @@ export type CatalogAgent = {
   description: string;
   capability: string;
   runtime_arn?: string;
-  ui_mode?: "static" | "a2ui";
 };
 
-const AGENT_COLORS: Record<string, string> = {
-  planner: "#6d5ef3",
-  release: "#d6453d",
-  bugreport: "#b8860b",
-};
-
+// A stable, distinct color per agent derived from its id — no hardcoded
+// per-agent list, so any newly synced agent gets its own color for free.
 export function agentColor(agentId: string): string {
-  return AGENT_COLORS[agentId] ?? "#63636e";
+  let hash = 0;
+  for (let i = 0; i < agentId.length; i += 1) {
+    hash = (hash * 31 + agentId.charCodeAt(i)) | 0;
+  }
+  return `hsl(${Math.abs(hash) % 360} 45% 55%)`;
 }
 
 export function useCatalog(): CatalogAgent[] {
