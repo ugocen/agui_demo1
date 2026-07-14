@@ -52,7 +52,7 @@ win_deployed/
 │   ├── build_packages.sh  # re-sync payload from Phase0/ + rewrite MANIFEST.sha256
 │   ├── check_sync.sh      # read-only drift check: has Phase0/ moved on?
 │   └── make_zips.sh       # produce dist/*.zip + SHA256SUMS.txt
-├── dist/                  # generated zips (gitignored; created by make_zips.sh)
+├── dist/                  # generated zips (TRACKED; created by make_zips.sh)
 │
 ├── backend/               # PAYLOAD 1 -> own Bitbucket repo (21 files)
 │   ├── app/               # verbatim from Phase0/backend/app/
@@ -138,6 +138,26 @@ dist/SHA256SUMS.txt
 Each archive is rooted at its folder name, so it expands to `backend/`,
 `frontend/`, `agents/`. `SHA256SUMS.txt` lets the enterprise side verify the
 transfer (`shasum -a 256 -c SHA256SUMS.txt` in WSL).
+
+### Why `dist/` is committed
+
+Unusually for build output, the zips **are tracked in git** (the root
+`.gitignore` negates `dist/` and `*.zip` for this folder only). Rationale:
+
+- **They are the delivery record.** The enterprise side has no git. Tracking the
+  exact bytes we handed over is the only way to answer *"which build is running
+  over there?"* and to diff against what they unzipped — the whole point of this
+  staging area.
+- **It is cheap and clean.** ~255 KB total, and `make_zips.sh` packs with
+  `zip -qrX`, which drops extra attributes and derives entry times from the
+  source files. Regeneration from unchanged sources is **byte-for-byte
+  identical**, so re-running it produces *no* diff — the checksums in
+  `SHA256SUMS.txt` stay stable until the payload genuinely changes.
+- **They are safe.** Payloads contain no secrets — only `*.example` templates.
+  `BEDROCK_API_KEY` ships blank by design.
+
+So a real diff on `dist/` always means *the payload actually changed* — treat it
+as a signal, and make sure `VERSION` and `CHANGELOG.md` were bumped to match.
 
 ---
 
