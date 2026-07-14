@@ -34,6 +34,8 @@ Every dependency pinned at install time is recorded here with the date it was pi
 | frontend | @azure/msal-browser | 5.17.0 | 2026-07-12 |
 | frontend | @azure/msal-react | 5.5.2 | 2026-07-12 |
 | frontend | zod | 4.4.3 | 2026-07-12 |
+| all 5 agents | boto3 | 1.43.46 | 2026-07-14 |
+| all 5 agents | python-dotenv | 1.2.2 | 2026-07-14 |
 
 Note: CopilotKit "current major" on the latest dist-tag is 1.62.x, which ships
 the v2 component set under the `@copilotkit/react-core/v2` subpath and the v2

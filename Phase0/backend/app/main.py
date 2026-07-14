@@ -4,7 +4,14 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+# Load env with component-local precedence: a backend/.env (enterprise overlay,
+# per-component config) wins over the repo-root Phase0/.env (personal/dev single
+# file), and real process env vars win over both (override=False). Same code
+# runs in either layout with no edits.
+_APP_DIR = Path(__file__).resolve().parent
+for _env_file in (_APP_DIR.parent / ".env", _APP_DIR.parent.parent / ".env"):
+    if _env_file.exists():
+        load_dotenv(_env_file)
 
 from contextlib import asynccontextmanager
 

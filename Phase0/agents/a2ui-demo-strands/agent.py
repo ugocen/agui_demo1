@@ -12,6 +12,13 @@ Run locally (points the proxy at it via LOCAL_AGENT_URL_A2UIDEMO):
 
 import os
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # existing env vars win (override=False); .env fills the rest
+except ImportError:
+    pass
+
 # Strands' OpenTelemetry span instrumentation raises a contextvar
 # "detach ... created in a different Context" error under local async streaming,
 # which aborts the SSE mid-run (empty A2UI surface). Disable it ONLY for local
@@ -24,7 +31,8 @@ if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
 from ag_ui_strands import StrandsAgent
 from bedrock_agentcore.runtime.ag_ui import AGUIApp
 from strands import Agent
-from strands.models import BedrockModel
+
+from model_factory import build_strands_model
 
 SYSTEM_PROMPT = """You are a generative-UI assistant. You answer by building a UI surface, not by writing paragraphs.
 
@@ -43,7 +51,7 @@ Keep any chat text to a single short sentence; the surface carries the content."
 
 
 def build_agent() -> StrandsAgent:
-    model = BedrockModel(model_id=os.environ["BEDROCK_MODEL_ID"])
+    model = build_strands_model()
     agent = Agent(model=model, system_prompt=SYSTEM_PROMPT, tools=[])
     return StrandsAgent(
         agent=agent,

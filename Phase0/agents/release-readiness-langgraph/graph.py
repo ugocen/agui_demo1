@@ -6,18 +6,25 @@ AG-UI custom events, the final node pauses on a LangGraph interrupt for the
 go/no-go decision (HITL) and then streams an LLM summary.
 """
 
-import os
 import re
 import uuid
 from typing import Annotated, TypedDict
 
-from langchain_aws import ChatBedrockConverse
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # existing env vars win (override=False); .env fills the rest
+except ImportError:
+    pass
+
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
+
+from model_factory import build_langchain_model
 
 
 class ReleaseState(TypedDict):
@@ -165,7 +172,7 @@ async def recommend(state: ReleaseState) -> dict:
     if not isinstance(decision, dict):
         decision = {"decision": str(decision)}
 
-    model = ChatBedrockConverse(model_id=os.environ["BEDROCK_MODEL_ID"])
+    model = build_langchain_model()
     prompt = [
         SystemMessage(
             content="You are a release readiness assistant. Summarize the release decision in at most four short sentences. Be factual, no markdown headers."

@@ -17,6 +17,13 @@ it only calls them by name — the UI carries the detail.
 
 import os
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # existing env vars win (override=False); .env fills the rest
+except ImportError:
+    pass
+
 # Strands' OpenTelemetry span instrumentation crashes the local SSE stream
 # (contextvar detach across the async-generator boundary). Disable it ONLY for
 # local dev (no OTEL exporter endpoint). On AgentCore the runtime sets
@@ -27,7 +34,8 @@ if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
 from ag_ui_strands import StrandsAgent
 from bedrock_agentcore.runtime.ag_ui import AGUIApp
 from strands import Agent
-from strands.models import BedrockModel
+
+from model_factory import build_strands_model
 
 SYSTEM_PROMPT = """You are a press-release assistant. The user gives you a topic and you write a professional press release for it.
 
@@ -40,7 +48,7 @@ Keep chat text to one short sentence — the card and document carry the content
 
 
 def build_agent() -> StrandsAgent:
-    model = BedrockModel(model_id=os.environ["BEDROCK_MODEL_ID"])
+    model = build_strands_model()
     agent = Agent(model=model, system_prompt=SYSTEM_PROMPT, tools=[])
     return StrandsAgent(
         agent=agent,

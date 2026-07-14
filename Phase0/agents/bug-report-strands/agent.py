@@ -11,12 +11,18 @@ client proxy tool, and the run pauses until the browser returns the submitted
 form. There are no backend-side tools for this agent.
 """
 
-import os
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # existing env vars win (override=False); .env fills the rest
+except ImportError:
+    pass
 
 from ag_ui_strands import StrandsAgent
 from bedrock_agentcore.runtime.ag_ui import AGUIApp
 from strands import Agent
-from strands.models import BedrockModel
+
+from model_factory import build_strands_model
 
 SYSTEM_PROMPT = """You are a bug report assistant that turns a user's description into a well-structured bug report.
 When the user describes a problem, analyse it and call draft_bug_report exactly once with sensible proposed values for every field: title, severity (one of critical, high, medium, low), steps_to_reproduce, expected_behavior, actual_behavior, environment.
@@ -27,7 +33,7 @@ Keep chat text short, the form carries the detail."""
 
 
 def build_agent() -> StrandsAgent:
-    model = BedrockModel(model_id=os.environ["BEDROCK_MODEL_ID"])
+    model = build_strands_model()
     agent = Agent(model=model, system_prompt=SYSTEM_PROMPT, tools=[])
     return StrandsAgent(
         agent=agent,
