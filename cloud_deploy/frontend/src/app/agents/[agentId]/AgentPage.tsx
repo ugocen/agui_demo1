@@ -8,11 +8,13 @@ import { AuthGate } from "@/components/AuthGate";
 import { agentColor, useCatalog, WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { newThreadId } from "@/lib/threads";
 
-function AgentPageInner({ agentId, agentName }: { agentId: string; agentName: string }) {
+function AgentPageInner({ agentId }: { agentId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const catalog = useCatalog();
-  const uiMode = catalog.find((agent) => agent.id === agentId)?.ui_mode ?? "static";
+  // Display name comes from the catalog (synced from AgentCore); fall back to the
+  // id until the catalog loads. No hardcoded per-agent names.
+  const agentName = catalog.find((agent) => agent.id === agentId)?.name ?? agentId;
   const [fallbackThread] = useState(() => newThreadId());
   const threadId = searchParams.get("thread");
 
@@ -30,21 +32,20 @@ function AgentPageInner({ agentId, agentName }: { agentId: string; agentName: st
         </span>
         <h1>{agentName}</h1>
         <span className="header-chip">agui</span>
-        <span className="header-chip">{uiMode === "a2ui" ? "A2UI" : "cards"}</span>
         <span className="header-chip">AgentCore</span>
       </header>
       {threadId ? (
-        <AgentChat agentId={agentId} agentName={agentName} threadId={threadId} uiMode={uiMode} />
+        <AgentChat agentId={agentId} agentName={agentName} threadId={threadId} />
       ) : null}
     </WorkspaceShell>
   );
 }
 
-export function AgentPage({ agentId, agentName }: { agentId: string; agentName: string }) {
+export function AgentPage({ agentId }: { agentId: string }) {
   return (
     <AuthGate>
       <Suspense fallback={null}>
-        <AgentPageInner agentId={agentId} agentName={agentName} />
+        <AgentPageInner agentId={agentId} />
       </Suspense>
     </AuthGate>
   );
