@@ -2,8 +2,9 @@
 
 Two SDLC-themed AG-UI agents on Amazon Bedrock AgentCore (SDLC Planner on
 Strands, Release Readiness on LangGraph), a local FastAPI backend (AG-UI proxy
-plus auth), and a local Next.js + CopilotKit frontend with per-agent generative
-UI cards. Built from `resources/07-phase0-claude-code-plan.md`.
+plus auth), and a local Next.js + CopilotKit frontend that renders agent output
+generatively through a **fully-generic A2UI catalog** (no per-agent card
+components). Built from `resources/07-phase0-claude-code-plan.md`.
 
 ## Layout
 
@@ -15,12 +16,27 @@ Phase0/
 │   ├── sdlc-planner-strands/        # Strands agent (S1 stories, S2 estimates, S3 HITL approval)
 │   └── release-readiness-langgraph/ # LangGraph agent (S4 checklist+risks+progress, S5 HITL go/no-go)
 ├── backend/              # FastAPI: /api/agents catalog + /api/agui/{id} SSE proxy
-├── frontend/             # Next.js + CopilotKit v2, 6 cards + progress indicator
+├── frontend/             # Next.js + CopilotKit v2, generic A2UI catalog (Chart/Mermaid/Markdown/Html)
 └── scripts/
     ├── build_zip.sh      # ARM64 zip packaging for direct code deployment
     ├── deploy_agent.py   # S3 upload + create/update AgentCore runtime (AGUI protocol)
     └── smoke_test.py     # S1..S5 + auth checks, prints the G0 report
 ```
+
+## Generative UI — current state (doc-vs-code note)
+
+The original plan (`resources/07`, `resources/13`) specified **six hand-authored
+cards** and per-`ui_mode` rendering. The implementation has since **pivoted to a
+fully-generic A2UI renderer**: the frontend mounts one rich A2UI catalog
+(`frontend/src/components/a2ui/richCatalog.tsx` — Chart / Mermaid / Markdown /
+Html on top of the basic A2UI components) for **every** agent, with no per-agent
+card components and no `ui_mode` special-casing (`useDefaultRenderTool` renders
+any tool call the catalog doesn't handle as a status line). The `a2ui-demo`
+agent is the canonical example; the card-style agents (planner, release,
+bug-report, press-release) still emit their tool calls, but the current frontend
+renders them generically. `ui_mode` is retained as a catalog/DB field for
+forward-compatibility only. Client-side **human-in-the-loop is not wired** in the
+current frontend (see the roadmap).
 
 ## Human prerequisites (doc 07 section 2)
 
