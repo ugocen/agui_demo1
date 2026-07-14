@@ -139,6 +139,24 @@ Each archive is rooted at its folder name, so it expands to `backend/`,
 `frontend/`, `agents/`. `SHA256SUMS.txt` lets the enterprise side verify the
 transfer (`shasum -a 256 -c SHA256SUMS.txt` in WSL).
 
+### Built AgentCore packages (`dist/agentcore/`)
+
+`make_zips.sh` produces the **source** delivery zips. The **built** AgentCore
+packages are a separate artifact, produced by `agents/scripts/build_zip.sh`:
+
+```bash
+# from the agents payload, once per agent
+./scripts/build_zip.sh ./sdlc-planner-strands     # -> build/sdlc-planner-strands.zip
+```
+
+They are ~27–42 MB each (~151 MB total) because every dependency is vendored as
+a **linux/arm64** wheel — AgentCore runs on ARM64 and does not `pip install` at
+deploy time. The 36 KB source zip is **not** deployable; it carries no
+dependencies.
+
+Copy them to `dist/agentcore/` with a `SHA256SUMS.txt` when shipping. They are
+**tracked in git** — safe because `build_zip.sh` is **reproducible** (see below).
+
 ### Why `dist/` is committed
 
 Unusually for build output, the zips **are tracked in git** (the root
@@ -148,11 +166,16 @@ Unusually for build output, the zips **are tracked in git** (the root
   exact bytes we handed over is the only way to answer *"which build is running
   over there?"* and to diff against what they unzipped — the whole point of this
   staging area.
-- **It is cheap and clean.** ~255 KB total, and `make_zips.sh` packs with
-  `zip -qrX`, which drops extra attributes and derives entry times from the
-  source files. Regeneration from unchanged sources is **byte-for-byte
-  identical**, so re-running it produces *no* diff — the checksums in
-  `SHA256SUMS.txt` stay stable until the payload genuinely changes.
+- **Every zip here is reproducible, so tracking them costs nothing over time.**
+  `make_zips.sh` packs the source zips with `zip -qrX`; `build_zip.sh` (v1.0.1+)
+  pins timestamps (`touch -h -t`), sorts entry order and passes `-X` for the
+  built packages. Regeneration from unchanged sources is **byte-for-byte
+  identical** — verified by building all five agents twice and comparing
+  checksums — so re-running either script produces *no* diff. Without this the
+  151 MB of `agentcore/` would add fresh blobs on every single build.
+- **Reproducibility is also a verification tool.** The enterprise side can run
+  `build_zip.sh` itself and compare its checksum to `agentcore/SHA256SUMS.txt`;
+  a match proves both machines built the same artifact.
 - **They are safe.** Payloads contain no secrets — only `*.example` templates.
   `BEDROCK_API_KEY` ships blank by design.
 
