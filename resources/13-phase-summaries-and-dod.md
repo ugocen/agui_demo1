@@ -6,7 +6,7 @@ Quick reference across all phases. Each phase has a one-line goal, a short summa
 
 Goal: prove AG-UI on AgentCore rendered by CopilotKit, with Entra ID tokens, end to end.
 
-Summary: two SDLC-themed AG-UI agents (SDLC Planner on Strands, Release Readiness on LangGraph) deployed to AgentCore via direct code deployment (zip in S3), a local FastAPI backend proxying AG-UI, and a local Next.js + CopilotKit frontend rendering six custom cards. Run twice: Stage A on the personal AWS account (macOS), Stage B on the corporate account (Windows 11). No EKS, no Temporal, no pipeline.
+Summary: two SDLC-themed AG-UI agents (SDLC Planner on Strands, Release Readiness on LangGraph) deployed to AgentCore via direct code deployment (zip in S3), a local FastAPI backend proxying AG-UI, and a local Next.js + CopilotKit frontend rendering generative UI (this plan specified six custom cards; the implementation later pivoted to a fully-generic A2UI catalog — see Phase0/README.md "Generative UI — current state"). Run twice: Stage A on the personal AWS account (macOS), Stage B on the corporate account (Windows 11). No EKS, no Temporal, no pipeline.
 
 Definition of Done (gate G0):
 * A pilot-group user signs in, chats, sees streaming tokens, a generative UI card renders from agent state, and a human-in-the-loop round trip completes
