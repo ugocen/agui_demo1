@@ -66,6 +66,17 @@ def discover_runtimes() -> list[dict]:
     return runtimes
 
 
+async def sync_catalog(db: AsyncSession) -> list[dict]:
+    """Discover live AG-UI runtimes from AgentCore and upsert them into the DB
+    catalog, then return those runtimes. This is the *only* path by which agents
+    enter the catalog — there is no env/seed path, and the proxy routes purely on
+    the DB entry's ARN. Non-AG-UI protocols (MCP, A2A, HTTP) are ignored.
+    """
+    runtimes = [r for r in discover_runtimes() if (r.get("protocol") or "").upper() == "AGUI"]
+    await sync_from_agentcore(db, runtimes)
+    return runtimes
+
+
 async def get_agent(db: AsyncSession, agent_id: str) -> dict | None:
     """Resolve a registered, enabled agent for routing (used by the AG-UI proxy)."""
     entry = await get_by_agent_id(db, agent_id)
@@ -104,14 +115,11 @@ async def list_agentcore_runtimes(
     db: AsyncSession = Depends(get_session),
     user: dict = Depends(require_platform_access),
 ) -> list:
-    # Only AG-UI runtimes belong in this platform — other protocols (MCP, A2A, HTTP)
-    # are filtered out and never listed or registered.
-    runtimes = [r for r in discover_runtimes() if (r.get("protocol") or "").upper() == "AGUI"]
-
-    # Auto-register: newly-deployed AG-UI agents are added to the catalog
-    # (ui_mode=a2ui by default) and existing entries' read-only fields refreshed —
-    # so a runtime added to AgentCore shows up here automatically, no manual "Sync".
-    await sync_from_agentcore(db, runtimes)
+    # Discover AG-UI runtimes and auto-register them: newly-deployed agents are
+    # added to the catalog (ui_mode=a2ui by default) and existing entries' read-only
+    # fields refreshed — so a runtime added to AgentCore shows up here automatically,
+    # no manual "Sync". Other protocols (MCP, A2A, HTTP) are ignored.
+    runtimes = await sync_catalog(db)
 
     by_arn = {e.runtime_arn: e for e in await list_entries(db)}
     for runtime in runtimes:

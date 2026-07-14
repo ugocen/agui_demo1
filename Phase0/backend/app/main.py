@@ -13,8 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.admin import router as admin_router
 from app.agents_catalog import router as agents_router
+from app.agents_catalog import sync_catalog
 from app.agui_proxy import router as proxy_router
-from app.catalog_service import seed_defaults
 from app.db import SessionLocal, init_db
 from app.logging_setup import get_logger, setup_logging
 from app.session import router as session_router
@@ -25,10 +25,17 @@ log = get_logger("http")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables and seed the built-in agents (idempotent) on startup.
+    # Create tables, then warm the catalog from AgentCore (best-effort). Agents
+    # come only from AgentCore — nothing is seeded from env. If AgentCore is
+    # unreachable at boot (no creds/region/network), the catalog fills on the
+    # first /api/agentcore/runtimes call or admin "Sync" instead.
     await init_db()
-    async with SessionLocal() as db:
-        await seed_defaults(db)
+    try:
+        async with SessionLocal() as db:
+            runtimes = await sync_catalog(db)
+        log.info("catalog synced from AgentCore: %d AG-UI runtime(s)", len(runtimes))
+    except Exception as error:  # noqa: BLE001 — never block startup on discovery
+        log.warning("startup AgentCore sync skipped: %s", error)
     log.info("database ready")
     yield
 
