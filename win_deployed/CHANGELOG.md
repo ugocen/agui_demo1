@@ -14,6 +14,43 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.1.0] — 2026-07-14
+
+### Changed
+
+- **The shipped agents can no longer call Amazon Bedrock — the code path is
+  gone.** `agents/*/model_factory.py` now comes from the enterprise fork at
+  `cloud_deploy/agents/` and talks only to the GenAI marketplace gateway. It
+  requires `BEDROCK_ENDPOINT_URL` and `BEDROCK_API_KEY` and raises if either is
+  missing.
+
+  Previously one file served both environments and picked the provider from the
+  environment: if either variable was empty it **silently** fell back to Amazon
+  Bedrock over SigV4. On an account with no Bedrock model access that is at best
+  a confusing failure and at worst enterprise traffic sent somewhere it must not
+  go — and nothing in the logs said so. `scripts/deploy_agent.py` already carried
+  a warning about this: AgentCore's `update_agent_runtime` replaces the whole
+  environment map, so a redeploy could strip the gateway config from a running
+  runtime and drop it back to Bedrock. That hazard no longer exists.
+
+  **For the operator:** if `agents/.env` is filled in as documented, nothing
+  changes. If the gateway is *not* configured, agents now fail loudly at startup
+  instead of quietly trying Bedrock.
+
+  Verified by DNS interception during a real `Converse` round-trip: with the
+  gateway configured the process contacts `genaiapigwna.jnj.com` and nothing
+  else; with it unset the agent refuses to build and contacts **no host at all**.
+  The client region is also pinned to a non-routable placeholder (as in the
+  marketplace's own code samples), so langchain's control-plane client can no
+  longer resolve `bedrock.<region>.amazonaws.com`.
+
+- **`ConverseStream` is still registered for the `x-api-key` header** alongside
+  `Converse` and `CountTokens`, since `BEDROCK_STREAMING` defaults to on. The
+  marketplace's published samples only demonstrate `Converse` and `InvokeModel`;
+  if the gateway does not proxy `converse-stream`, set `BEDROCK_STREAMING=false`
+  in `agents/.env` — the UI still streams, because AG-UI rebuilds the token
+  stream locally.
+
 ## [1.0.2] — 2026-07-14
 
 ### Fixed

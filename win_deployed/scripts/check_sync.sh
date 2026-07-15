@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Report drift between the Phase0 source and the enterprise payloads shipped from
-# win_deployed/ — i.e. "has Phase0 moved on since we last packaged?"
+# Report drift between the sources and the enterprise payloads shipped from
+# win_deployed/ — i.e. "have the sources moved on since we last packaged?"
+#
+# Sources are split: backend/ and frontend/ come from Phase0/, agents/ come from
+# the enterprise fork in cloud_deploy/ (AGENTS.md invariant 4). _payload.sh owns
+# that mapping; this script just diffs whatever it produces.
 #
 # Usage:  win_deployed/scripts/check_sync.sh
 # Exit 0 = in sync. Exit 1 = drift (details printed). Read-only: changes nothing.
@@ -48,12 +52,13 @@ for tree in backend frontend agents; do
 done
 
 if [ "$drift" -eq 0 ]; then
-  echo "OK: win_deployed/ payloads match Phase0/ (version $(cat "$OUT/VERSION" 2>/dev/null || echo '?'))"
+  echo "OK: win_deployed/ payloads match their sources — backend+frontend from Phase0/, agents from cloud_deploy/ (version $(cat "$OUT/VERSION" 2>/dev/null || echo '?'))"
   exit 0
 fi
 
 echo
-echo "Phase0/ has moved on. To adopt the changes into the enterprise package:"
+echo "The sources have moved on. To adopt the changes into the enterprise package:"
+echo "  0. cloud_deploy/scripts/sync_agents.sh    # if an AGENT changed in Phase0/"
 echo "  1. win_deployed/scripts/build_packages.sh   # re-sync + rewrite MANIFEST"
 echo "  2. bump win_deployed/VERSION and add a CHANGELOG.md entry"
 echo "  3. win_deployed/scripts/make_zips.sh        # rebuild the zips to send"

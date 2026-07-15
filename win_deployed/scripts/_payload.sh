@@ -4,7 +4,13 @@
 # file set — there is exactly one definition of "what ships".
 #
 # Rules encoded here:
-#  * Code is copied verbatim from Phase0/ (single source of truth; no fork).
+#  * backend/ and frontend/ are copied verbatim from Phase0/ (single source; no fork).
+#  * agents/ ship from the ENTERPRISE fork at cloud_deploy/agents/, NOT from
+#    Phase0/agents/. The delivered package must carry the gateway-only provider:
+#    the enterprise account has no Bedrock model access, and an agent that could
+#    fall back to Amazon Bedrock is exactly what we removed (AGENTS.md invariant
+#    4). The two agent copies are identical apart from model_factory.py, and
+#    cloud_deploy/scripts/check_agent_sync.sh is the gate that proves it.
 #  * Agent/dev tooling never ships: .claude/, .agents/, CLAUDE.md, AGENTS.md.
 #  * Secrets never ship: only *.example templates (hand-written, see below).
 #  * Hand-written enterprise files (README.md, .gitignore, .env*.example) are
@@ -91,13 +97,19 @@ payload_sync() {
     cp "$src/frontend/$f" "$out/frontend/$f"
   done
 
-  # ---- agents ----
+  # ---- agents (from the enterprise fork, see header) ----
+  local agents_src
+  agents_src="$(cd "$src/.." && pwd)/cloud_deploy"
+  [ -d "$agents_src/agents" ] || {
+    echo "FAIL: enterprise agent fork not found: $agents_src/agents" >&2
+    return 1
+  }
   mkdir -p "$out/agents"
   local a
   for a in "${AGENT_DIRS[@]}"; do
     rm -rf "${out:?}/agents/$a"
     mkdir -p "$out/agents/$a"
-    rsync -a "${EXCLUDES[@]}" "$src/agents/$a/" "$out/agents/$a/"
+    rsync -a "${EXCLUDES[@]}" "$agents_src/agents/$a/" "$out/agents/$a/"
   done
   # Packaging + deployment tooling the enterprise side needs for AgentCore.
   mkdir -p "$out/agents/scripts"
