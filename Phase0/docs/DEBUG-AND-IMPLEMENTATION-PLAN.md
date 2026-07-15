@@ -50,6 +50,11 @@ instead of an unhandled 500 stack trace (finding **M9**).
 **✅ Confirmed — and it is stronger than "same except the LLM call": the call sites are
 identical; only environment values differ.**
 
+> **Superseded 2026-07-14 (PR #20).** The provider is no longer selected from the
+> environment; the agents are forked, one copy per provider (AGENTS.md invariant 4).
+> `use_gateway()` no longer exists. The section below describes the pre-fork design
+> and is kept only as the record of what the audit found at the time.
+
 - **One codebase per agent.** All five `model_factory.py` copies are **byte-identical**
   (`md5 = 71f74e15304ac62cbe74fabcbdfb8679`). Every agent builds its model **only** via
   `build_strands_model()` / `build_langchain_model()`. A grep of all agent `.py` for
