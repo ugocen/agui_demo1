@@ -14,6 +14,46 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.3.0] — 2026-07-16
+
+### Added
+
+- **`agents/scripts/smoke_test.py` now ships**, and its new **S0** check probes
+  **every** agent in the catalog — not a hand-picked pair.
+
+  S0 exists because of how the port bug reached this package: `smoke_test.py`
+  exercised only `planner` and `release`, both of which happened to bind 8080, so
+  five green checks coexisted with two undeployable agents. S0 asks the catalog
+  (`GET /api/agents`) which agents are registered and probes each one, so an agent
+  added later is covered without editing the test. No ids are hardcoded.
+
+  **The probe is an invoke, deliberately.** The control plane reports a runtime
+  `READY` whether or not its container can boot — the port bug sat behind a READY
+  runtime. Only an invoke reveals it. To keep that cheap, S0 stops at the first
+  `RUN_STARTED`, which AG-UI emits *before* the model is called: it proves catalog
+  → proxy → SigV4 → AgentCore → container booted → agent running, for roughly no
+  tokens. S1–S5 still exercise `planner` and `release` in depth.
+
+  When a runtime fails, S0 translates AgentCore's *"initialization time
+  exceeded"* into the three things actually worth checking — wrong port, a missing
+  `BEDROCK_ENDPOINT_URL` / `BEDROCK_API_KEY` / `BEDROCK_MODEL_ID`, and the
+  `[runtime-logs]` stream where the real traceback is. Those causes are
+  indistinguishable from the outside, which is why the message names all of them.
+
+  It ships because it can only run where the backend and the runtimes are
+  reachable, which is inside the enterprise. It reads `agents/.env` for
+  `BACKEND_URL` (default `http://localhost:8000`) and `AUTH_MODE`; in `entra` mode
+  export `SMOKE_BEARER_TOKEN` first.
+
+### Changed
+
+- Removed an internal planning-note block from `smoke_test.py` before shipping it
+  (a stale `[Human]` to-do list referencing our own docs). 1.0.0 cleaned this class
+  of reference out of the payload; shipping this file would have reintroduced it.
+
+The built AgentCore packages are **byte-identical to 1.2.1** — `smoke_test.py`
+lives in `scripts/`, not in an agent directory, so no deployable package changes.
+
 ## [1.2.1] — 2026-07-15
 
 ### Fixed — the rest of the documentation the fork made false
