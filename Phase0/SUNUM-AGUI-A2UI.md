@@ -40,11 +40,18 @@ backend code**.
 
 ---
 
-## Verification status (what is demo-ready, 2026-07-14)
+## Verification status (last verified 2026-07-14)
 
 > **📋 In plain terms:** the platform was exercised end-to-end against the **live,
-> deployed AgentCore agents** this session. The core flows work today; a couple of
+> deployed AgentCore agents** on 2026-07-14. The core flows work; a couple of
 > items are wiring/config, not blockers.
+
+> **⚠️ Not re-verified since 2026-07-14.** Three changes landed on 2026-07-15 that bear
+> on the rows below: **#19** rebound every agent to **port 8080** (the AgentCore
+> health-check contract — `a2ui-demo` was on 8090, `press-release` on 8091), **#20**
+> forked the LLM provider (last row), and **#21** corrected the default-branch note.
+> Re-run `scripts/smoke_test.py` against the redeployed runtimes before quoting the ✅
+> rows in a demo.
 
 | Flow | Status | Evidence |
 |---|---|---|
@@ -54,7 +61,7 @@ backend code**.
 | **A2UI** — chat surface loads, agent connects, `render_a2ui` run reaches AgentCore | ✅ verified | browser: `/api/copilotkit/agent/a2uidemo/run` 200; A2UI middleware `/info` mounts renderer |
 | Frontend **build + lint**, backend imports, `ruff` | ✅ green | `npm run build` + `npm run lint` clean; `ruff check` clean |
 | `ui_mode=static` **frontend branch** + admin control | ⏳ designed, not wired | Part 7 (dormant field; ~1–2 day wiring) |
-| Enterprise **GenAI-gateway** LLM switch (Bedrock ↔ `x-api-key` gateway) | ✅ code-verified | `agents/*/model_factory.py` matches the reference pattern; same code, env-only — see `docs/DEBUG-AND-IMPLEMENTATION-PLAN.md` |
+| Enterprise LLM provider — **forked, not configured** (#20) | ✅ code-verified | `Phase0/agents/*/model_factory.py` is **Bedrock-only**; `cloud_deploy/agents/*/model_factory.py` is **gateway-only** (`x-api-key`). No env var can cross them; `cloud_deploy/scripts/check_agent_sync.sh` gates drift. See AGENTS.md invariant 4 |
 
 > Notes: The one caveat from live testing: a browser A2UI run can surface an HTTP 500
 > that is actually an **expired AWS SSO session** on the backend
@@ -958,6 +965,18 @@ runtime_config = {
     "environmentVariables": {"BEDROCK_MODEL_ID": model_id},
 }
 ```
+
+> **📋 A third, separate axis — agents ship in two copies** (AGENTS.md invariants 4 & 7).
+> The same agent is packaged for two targets: `Phase0/agents/<a>/` (our AWS account,
+> **Bedrock-only**) and `cloud_deploy/agents/<a>/` (enterprise, **gateway-only** via
+> `x-api-key`). The LLM provider is **forked, not configured**: `model_factory.py` is the
+> *only* file allowed to differ, so **no environment variable can make an enterprise agent
+> reach Bedrock** — the enterprise account has no Bedrock model access, and the previous
+> env-driven switch meant one missing variable silently sent its traffic to Amazon
+> Bedrock. `cloud_deploy/scripts/sync_agents.sh` keeps everything else byte-identical and
+> `check_agent_sync.sh` fails on drift or provider bleed. This is orthogonal to both axes
+> in this Part: it is *which LLM an agent may call*, not what it speaks (`protocol`) or
+> how it renders (`ui_mode`).
 
 **At discovery time**, the backend reads each runtime's protocol from the AgentCore
 control plane and stores it (read-only) in the catalog:
