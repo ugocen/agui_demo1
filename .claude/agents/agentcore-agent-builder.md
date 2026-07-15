@@ -1,6 +1,6 @@
 ---
 name: agentcore-agent-builder
-description: Use to scaffold a new Strands or LangGraph agent under Phase0/agents/, with an env-driven model provider, then build and deploy it to Bedrock AgentCore. Invoke when the user asks for a new agent.
+description: Use to scaffold a new Strands or LangGraph agent under Phase0/agents/, mirror it into the cloud_deploy/agents/ enterprise fork, then build and deploy it to Bedrock AgentCore. Invoke when the user asks for a new agent.
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 
@@ -20,10 +20,9 @@ Steps:
    - `agent.py` — the entry point. Build the model via
      `model_factory.build_strands_model()` (Strands) or
      `model_factory.build_langchain_model()` (LangGraph). **Never** hardcode a
-     model id or provider (architecture invariant 4) — the model provider must
-     stay purely env-driven (Bedrock by default, enterprise `x-api-key`
-     gateway when `BEDROCK_ENDPOINT_URL` + `BEDROCK_API_KEY` are both set).
-     Serve the AgentCore contract: `POST /invocations` (SSE, protocol `AGUI`),
+     model id or provider (architecture invariant 4) — the provider is chosen by
+     which copy the agent is in, not at runtime: `Phase0/agents/` is Bedrock-only,
+     `cloud_deploy/agents/` is gateway-only. Serve the AgentCore contract: `POST /invocations` (SSE, protocol `AGUI`),
      `GET /ping`, `/ws`, port 8080.
    - `model_factory.py` — copy **verbatim** from a sibling agent; every agent
      carries its own copy since each ships as an independent zip. Do not

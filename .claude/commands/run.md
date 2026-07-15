@@ -19,7 +19,8 @@ Bring Phase 0 up locally so I can try it in a browser:
    ```
    Report http://localhost:3000.
 
-To test the release agent locally without AWS, run it standalone on `:8080`
-and start the backend with
-`LOCAL_AGENT_URL_RELEASE=http://127.0.0.1:8080/invocations`. Run both servers
-in the background so the session stays interactive.
+An agent can be run standalone on `:8080` for debugging, but the backend cannot
+be pointed at it: the proxy resolves every target from the catalog's AgentCore
+`runtime_arn` and SigV4-signs the call, with no local override (`LOCAL_AGENT_URL_*`
+no longer exists). Run both servers in the background so the session stays
+interactive.

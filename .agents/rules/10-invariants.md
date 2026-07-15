@@ -14,15 +14,27 @@ See root `AGENTS.md` for detail. The non-negotiables:
    derived from AD-group membership **server-side**, never trusted from the
    client. Layer B (backend ↔ AgentCore) is **always SigV4**, independent of
    Layer A.
-4. **Agents deploy to AgentCore as direct-code zips; the model provider is
-   env-driven** via each agent's `model_factory.py` (default Amazon Bedrock;
-   enterprise `x-api-key` gateway when both `BEDROCK_ENDPOINT_URL` and
-   `BEDROCK_API_KEY` are set). Never hardcode a provider or model id.
+4. **Agents deploy to AgentCore as direct-code zips, and the LLM provider is
+   forked, not configured.** Each environment has exactly one provider, chosen by
+   *which copy you are in*, never at runtime:
+   `Phase0/agents/<a>/model_factory.py` is **Amazon Bedrock only** (no gateway
+   code path; setting `BEDROCK_ENDPOINT_URL` there does nothing), and
+   `cloud_deploy/agents/<a>/model_factory.py` is **gateway only** (`x-api-key`;
+   no Bedrock code path; endpoint + key + model id are mandatory and it refuses to
+   build without them). The env-driven switch this replaced meant one missing
+   variable silently sent enterprise traffic to Bedrock, in an account with no
+   Bedrock access. **`model_factory.py` is the ONLY file allowed to differ between
+   the copies** — any other agent change must land in both:
+   `cloud_deploy/scripts/sync_agents.sh`, then `check_agent_sync.sh` as the gate.
+   Never hardcode a model id.
 5. **Generative UI is A2UI, rendered generically** through the rich catalog
    (`Phase0/frontend/src/components/a2ui/richCatalog.tsx`). Adding a UI
    capability means extending that catalog, not adding per-agent React cards.
 6. **The frontend is a modified Next.js 16.** Read
    `Phase0/frontend/node_modules/next/dist/docs/` before writing any Next.js
    code — see `Phase0/frontend/AGENTS.md`.
-7. **`cloud_deploy/` is an enterprise config overlay (env only).** The app
-   lives once, in `Phase0/`.
+7. **`cloud_deploy/` is the enterprise side: env + the agent fork.** The backend
+   and frontend live once, in `Phase0/`; `cloud_deploy/` never forks them and
+   only supplies their enterprise env. The **agents are the one deliberate
+   exception** (invariant 4). `win_deployed/` therefore packages backend/frontend
+   from `Phase0/` and **agents from `cloud_deploy/`**.

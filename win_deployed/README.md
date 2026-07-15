@@ -18,10 +18,15 @@ written for Windows 11 + WSL2.
 ## The rule: `Phase0/` is the single source of truth
 
 Code under `win_deployed/` is a **copy**, produced mechanically by
-`scripts/build_packages.sh` from `Phase0/`. There is no fork.
+`scripts/build_packages.sh`. Backend and frontend come from `Phase0/` and are not
+forked. **Agents come from `cloud_deploy/agents/`** — the one deliberate fork
+(AGENTS.md invariant 4), whose `model_factory.py` is gateway-only because this
+account has no Bedrock access. Everything else about the agents is kept identical
+to `Phase0/agents/` by `cloud_deploy/scripts/check_agent_sync.sh`.
 
-> **Never hand-edit code under `win_deployed/`.** Fix it in `Phase0/`, then
-> re-run `scripts/build_packages.sh`. A hand-edit here is silently reverted by
+> **Never hand-edit code under `win_deployed/`.** Fix it at its source — `Phase0/`
+> for backend/frontend/agent code, `cloud_deploy/agents/` for the gateway-only
+> `model_factory.py` — then re-run `scripts/build_packages.sh`. A hand-edit here is silently reverted by
 > the next sync and shows up as drift in `scripts/check_sync.sh`.
 
 The **only** files owned by `win_deployed/` — hand-written, enterprise-specific,
@@ -45,8 +50,8 @@ touches the files in the table above.
 win_deployed/
 ├── README.md              # this file — internal index (not shipped)
 ├── CHANGELOG.md           # what changed per package version (not shipped)
-├── VERSION                # package version of what we send — currently 1.0.0
-├── MANIFEST.sha256        # sha256 of every shipped file (78 at 1.0.0) — the record of what a version contained
+├── VERSION                # package version of what we send (this file is the source of truth)
+├── MANIFEST.sha256        # sha256 of every shipped file (78 files) — the record of what a version contained
 ├── scripts/               # our tooling (not shipped)
 │   ├── _payload.sh        # THE definition of what ships; sourced by the two scripts below
 │   ├── build_packages.sh  # re-sync payload from Phase0/ + rewrite MANIFEST.sha256
@@ -129,9 +134,9 @@ Wipes and recreates `win_deployed/dist/`, then writes one zip per payload named
 from `VERSION`:
 
 ```
-dist/agui-backend-1.0.0.zip
-dist/agui-frontend-1.0.0.zip
-dist/agui-agents-1.0.0.zip
+dist/agui-backend-<VERSION>.zip
+dist/agui-frontend-<VERSION>.zip
+dist/agui-agents-<VERSION>.zip
 dist/SHA256SUMS.txt
 ```
 
@@ -196,7 +201,8 @@ as a signal, and make sure `VERSION` and `CHANGELOG.md` were bumped to match.
 ## Versioning policy
 
 - `VERSION` is the **package version of what we send** — it versions the
-  delivery, not the app. Currently `1.0.0`.
+  delivery, not the app. Read it with `cat win_deployed/VERSION`; do not restate
+  it in prose here, or this README goes stale the next time it is bumped.
 - **Whenever the payload changes, bump `VERSION` and add a `CHANGELOG.md`
   entry.** Semantic-ish: patch for doc/config fixes, minor for new code or
   agents, major for a layout or migration-requiring change.
@@ -270,9 +276,10 @@ These are real and worth knowing before you trust a green check:
    counterpart. If `Phase0/` gains or renames an env var, the READMEs and `.env`
    templates do **not** fail any check — they silently go stale. Re-read them by
    hand whenever the config surface changes.
-2. **`dist/` and `*.zip` are git-ignored** (root `.gitignore`), by design — we
-   do not version binary deliverables. `VERSION` + `MANIFEST.sha256` are the
-   record of what a given zip contained; the zips are reproducible from a tag.
+2. **`dist/` and its zips ARE tracked** — the root `.gitignore` negates them for
+   this folder only, because they are the delivery record and the enterprise side
+   has no git. See "Why `dist/` is committed" above, including the caveat that
+   reproducibility is bounded by transitive-dependency drift.
 3. **`win_deployed/` tooling runs on macOS** (`rsync`, `shasum`, `zip`). It is
    our-side only and is not expected to run in WSL.
 

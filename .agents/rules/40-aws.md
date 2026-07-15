@@ -13,10 +13,12 @@
   `backend/.env`.** It lives in `Phase0/.env` and is read directly by
   `scripts/deploy_agent.py` (or supplied by CI) — the running backend process
   never reads `DEPLOY_BUCKET` or `EXECUTION_ROLE_ARN`.
-- **The LLM model provider is env-driven, never hardcoded.** Each agent's
-  `model_factory.py` defaults to Amazon Bedrock (SigV4, host credential
-  chain) and switches to an enterprise `x-api-key` gateway only when both
-  `BEDROCK_ENDPOINT_URL` and `BEDROCK_API_KEY` are set (see
-  `Phase0/agents/.env.example` and `cloud_deploy/env/agents.env.example`).
+- **The LLM provider is forked, not configured** (invariant 4). There is no
+  runtime switch: `Phase0/agents/<a>/model_factory.py` is Amazon Bedrock only
+  (SigV4, host credential chain) and has no gateway code path;
+  `cloud_deploy/agents/<a>/model_factory.py` is gateway only (`x-api-key`) and has
+  no Bedrock code path, requires `BEDROCK_ENDPOINT_URL` + `BEDROCK_API_KEY` +
+  `BEDROCK_MODEL_ID`, and raises without them. See `Phase0/agents/.env.example`
+  and `cloud_deploy/env/agents.env.example`. Never hardcode a model id.
 - Never commit AWS credentials or gateway API keys. Keep them in `.env` files
   (gitignored) or the deploy environment, never in code.

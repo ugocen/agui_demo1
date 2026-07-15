@@ -65,13 +65,13 @@ in the runtime's `[runtime-logs]` CloudWatch stream.
 
 ### Environment variables
 
-| Variable | Required for gateway | Notes |
+| Variable | Required | Notes |
 | --- | --- | --- |
 | `BEDROCK_ENDPOINT_URL` | **Yes** | **Base URL only** — e.g. `https://genaiapigwna.jnj.com` |
 | `BEDROCK_API_KEY` | **Yes** | Sent as the `x-api-key` header. Never commit it. |
-| `BEDROCK_MODEL_ID` | Recommended | E.g. `global.anthropic.claude-sonnet-4-5-20250929-v1:0`. If unset, the code defaults to Claude Haiku 4.5 — always set it explicitly. |
+| `BEDROCK_MODEL_ID` | **Yes** | E.g. `global.anthropic.claude-sonnet-4-5-20250929-v1:0`. There is **no default** in this build — the agent raises without it. |
 | `BEDROCK_STREAMING` | Optional | `true` (default) or `false`. |
-| `AWS_REGION` | Optional | Defaults to `us-east-1`. In gateway mode this only scopes the ignored SigV4 signature. |
+| `AWS_REGION` | Not read by the agent | `model_factory.py` pins the client's region to a non-routable placeholder on purpose. Only the deploy tooling uses this (S3 + the AgentCore control plane). |
 
 ### The classic mistake: `BEDROCK_ENDPOINT_URL` is a BASE URL
 
@@ -98,9 +98,9 @@ locally before it reaches the browser.
 | | Personal / dev | **Enterprise** |
 | --- | --- | --- |
 | Provider | Amazon Bedrock | **GenAI marketplace API gateway** |
-| How it is selected | `BEDROCK_ENDPOINT_URL` / `BEDROCK_API_KEY` left empty | **Both** set |
+| How it is selected | Not selected — a **separate build** (`Phase0/agents/`, Bedrock-only) | Not selected — **this build** is gateway-only |
 | Auth on model calls | AWS SigV4 (host credential chain) | **`x-api-key` header** |
-| Typical model id | Claude Haiku 4.5 (code default) | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| Typical model id | Claude Haiku 4.5 (that build's default) | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` (mandatory here) |
 | Needs Bedrock access in the AWS account | Yes | No |
 
 ---
@@ -191,7 +191,7 @@ Use this when you do **not** have S3 or IAM role access from your workstation.
    - **Entry point**: `agent.py`
    - **Server protocol**: **`AGUI`**  ← the backend only discovers AGUI runtimes
    - **Network mode**: `PUBLIC`
-4. Set the runtime **environment variables** — this is what turns on gateway mode,
+4. Set the runtime **environment variables** — this is the only way a deployed agent gets them,
    with no code change:
 
    | Key | Value |
@@ -310,7 +310,7 @@ agents/
 ├── sdlc-planner-strands/
 │   ├── agent.py                    # entry point (must be at the zip root)
 │   ├── tools.py                    # server-side card tools (this agent only)
-│   ├── model_factory.py            # provider switch — identical in all 5
+│   ├── model_factory.py            # gateway-only provider — identical in all 5
 │   └── requirements.txt
 ├── release-readiness-langgraph/
 │   ├── agent.py
@@ -335,6 +335,6 @@ build/                              # created by build_zip.sh — gitignored
 | `FAIL: non-ARM64 native binaries found` | Do not `pip install` by hand; use `build_zip.sh`, which pins the arm64 wheel flags. |
 | `FAIL: agent.py is not at the zip root` | You zipped the folder instead of its contents. Use `build_zip.sh`. |
 | 404 / malformed URL from the gateway | `BEDROCK_ENDPOINT_URL` has a path on it. It is a **base URL only**. |
-| Model calls fail with an AWS credentials or access-denied error | Gateway mode is off — one of `BEDROCK_ENDPOINT_URL` / `BEDROCK_API_KEY` is empty on the runtime, so the agent fell back to Bedrock SigV4. |
+| Model calls fail with an AWS credentials or access-denied error | **Not a fallback** — this build cannot call Bedrock. Suspect the gateway rejecting the request, or the runtime being unable to reach `genaiapigwna.jnj.com` from AgentCore's public network. Read `[runtime-logs]`. |
 | Streaming errors from the gateway | Set `BEDROCK_STREAMING=false` on the runtime. |
 | Agent does not appear in the UI | Runtime is not `READY`, its `serverProtocol` is not `AGUI`, or the frontend was not restarted. |

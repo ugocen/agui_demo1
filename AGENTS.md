@@ -12,9 +12,9 @@ Phase 0 is a validation spike for an SDLC agent platform: a **local Next.js
 16 / React 19 / CopilotKit v2 (subpath APIs) + A2UI frontend**
 (`Phase0/frontend`) and a **local FastAPI backend-for-frontend proxy**
 (`Phase0/backend`) that streams **AG-UI over SSE** to **Strands / LangGraph
-agents running remotely on Amazon Bedrock AgentCore**. The app lives once, in
-`Phase0/`. `cloud_deploy/` is an enterprise configuration overlay for the same
-code — see invariant 7. Deep background: `Phase0/README.md` and
+agents running remotely on Amazon Bedrock AgentCore**. The backend and frontend
+live once, in `Phase0/`; `cloud_deploy/` supplies their enterprise env and holds
+the one deliberate fork — the agents — see invariants 4 and 7. Deep background: `Phase0/README.md` and
 `Phase0/ARCHITECTURE.md`.
 
 ## Architecture invariants (do not break)
@@ -100,10 +100,10 @@ ruff check agents backend/app --exclude '**/.venv/**'
 cd Phase0/frontend
 npm run build && npm run lint
 
-# Local agent without AWS (release agent only; no Bedrock needed until the
-# final summary) — run the release agent on :8080, then start the backend
-# with:
-LOCAL_AGENT_URL_RELEASE=http://127.0.0.1:8080/invocations
+# Run an agent standalone for debugging (the backend CANNOT be pointed at it —
+# the proxy always resolves runtime_arn from the catalog and SigV4s to AgentCore;
+# LOCAL_AGENT_URL_* no longer exists). Post to /invocations directly instead.
+cd Phase0/agents/<agent-dir> && python agent.py     # serves :8080, GET /ping
 ```
 
 Agents live in **two copies** (invariant 4): `Phase0/agents/<name>/` (Bedrock)

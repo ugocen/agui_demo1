@@ -25,9 +25,12 @@ npm install
 npm run dev   # http://localhost:3000
 ```
 
-### 4. Local agent without AWS (release agent only)
-- Run the release agent standalone on `:8080`, then start the backend with
-  `LOCAL_AGENT_URL_RELEASE=http://127.0.0.1:8080/invocations` so the proxy
-  targets the local process instead of AgentCore. Unset it for real runs.
+### 4. Running an agent standalone (it will NOT reach the backend)
+- You can run an agent process on its own for debugging, but the backend cannot be
+  pointed at it. `agui_proxy.py` resolves every target from the DB catalog entry's
+  AgentCore `runtime_arn` and SigV4-signs the call; there is no local override.
+  `LOCAL_AGENT_URL_*` was that mechanism and no longer exists in the code.
+  Post an AG-UI request straight to the agent's `/invocations`, or check liveness
+  with `curl localhost:8080/ping`.
 
 Run both servers in the background so the session stays interactive.
