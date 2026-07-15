@@ -14,6 +14,46 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.2.1] — 2026-07-15
+
+### Fixed — the rest of the documentation the fork made false
+
+1.2.0 fixed the false statements it happened to look at. An adversarial re-audit
+found 20 more across 14 files. No code behaviour changes here; the shipped agent
+sources and the built AgentCore packages are **byte-identical to 1.2.0**.
+
+Worst first — these were not stale prose, they were instructions that cause damage:
+
+- **`.agents/rules/`** — the always-on rules every agentic tool reads before it
+  touches anything — still taught the deleted env-driven switch, and
+  `00-start-here.md` said *"Never fork or duplicate app code into `cloud_deploy/`"*.
+  That instructs the next agent to **undo the fork**. `10-invariants.md` 4 and 7,
+  `40-aws.md` and `00-start-here.md` now match `AGENTS.md`.
+- **`cloud_deploy/README.md`** described any `agents/` there as an untracked local
+  artifact, *"safe to delete"*. It is the tracked enterprise fork — following that
+  deletes the gateway-only build. Also added `agents/` and `scripts/` to its
+  "What's here", which listed only `env/`.
+- **`agents/README.md`** (shipped, and the deploy mechanism, since deploys are
+  manual): seven surviving contradictions. `BEDROCK_MODEL_ID` was "Recommended …
+  defaults to Claude Haiku 4.5"; the troubleshooting table blamed a
+  *"fell back to Bedrock SigV4"* cause that **cannot occur in this build** and
+  would send the operator hunting the wrong bug; `AWS_REGION` was described as the
+  SigV4 scope when `model_factory.py` never reads it.
+- **`README.md`** claimed *"There is no fork"*, said `dist/` is git-ignored two
+  sections after explaining why it is tracked, and reported VERSION as 1.0.0.
+- **`scripts/deploy_agent.py`** printed `"Gateway mode: …"` — announcing a mode
+  that no longer exists in either build.
+- **`scripts/build_zip.sh`**'s header promised byte-identical rebuilds with no
+  mention of the transitive-dependency caveat that 1.2.0 hit.
+- Dead `LOCAL_AGENT_URL_*` "run an agent locally against the backend" instructions
+  removed from `AGENTS.md`, `Phase0/README.md` and both `run` workflows — the
+  proxy has had no local override for some time, so they silently did nothing.
+
+**Why they went stale:** hand-written enterprise files have no `Phase0/`
+counterpart, so `check_sync.sh` excludes them by design and they fail silently.
+`.agents/rules/` is outside every gate. Both remain uncovered — re-read them by
+hand whenever the config surface moves.
+
 ## [1.2.0] — 2026-07-15
 
 ### Fixed
@@ -52,8 +92,10 @@ Console**, these documents *are* the deployment mechanism:
   environment variables in the console.
 - **`agents/README.md`** still listed `a2ui-demo-strands` on port 8090 and
   `press-release-strands` on 8091 — the exact bug fixed in 1.0.2. All five serve
-  8080. Its "gateway mode ON/OFF" section is replaced with what the build
-  actually does.
+  8080. Its "gateway mode ON/OFF" section was replaced with what the build
+  actually does. **(1.2.0 replaced that one section only; seven further
+  contradictions survived elsewhere in the same file and were fixed in 1.2.1 —
+  this entry overstated the fix.)**
 - **`README.md`** repeated "gateway mode activates when both … are set".
 
 Also documented: what a missing variable actually looks like (an initialization

@@ -12,8 +12,8 @@ deployed and synced from AgentCore.
 - `Phase0/agents/<name>/` with:
   - `agent.py` — the agent entry point, using
     `model_factory.build_strands_model()` (Strands) or
-    `model_factory.build_langchain_model()` (LangGraph) so the model provider
-    stays env-driven (invariant 4). Serve the AgentCore contract: `POST
+    `model_factory.build_langchain_model()` (LangGraph) — never construct a
+    model directly, and never hardcode a model id (invariant 4). Serve the AgentCore contract: `POST
     /invocations` (SSE, `AGUI` protocol), `GET /ping`, `/ws`, port 8080.
   - `model_factory.py` — copy verbatim from a sibling agent (e.g.
     `agents/sdlc-planner-strands/model_factory.py`); every agent carries its

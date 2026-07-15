@@ -46,11 +46,22 @@ or if the Phase0 factory grows a gateway path.
 ## What's here
 
 ```
+agents/                       # THE ENTERPRISE AGENT FORK — tracked, not scratch space
+  <agent>/model_factory.py    #   gateway-only provider (the one file that may differ)
+  <agent>/agent.py, ...       #   kept byte-identical to Phase0/agents/ by the sync
+  .env                        #   real gateway config (gitignored; never commit)
+scripts/
+  _agents.sh                  # single definition: which agents, which files may differ
+  sync_agents.sh              # propagate a Phase0 agent change into the fork
+  check_agent_sync.sh         # gate: no drift, no provider bleed either way
 env/
   agents.env.example          # J&J gateway URL + api-key + Sonnet model  (the important one)
   backend.env.example         # backend config for the per-component layout
   frontend.env.local.example  # enterprise Entra SPA client id + tenant
 ```
+
+`agents/` is **version-controlled source**, not a local artifact. It is what
+`win_deployed/` packages and what the enterprise runs.
 
 These are `*.example` templates. Copy each to the real (gitignored) location and
 fill secrets:
@@ -121,9 +132,15 @@ Search** enabled once per account+region.
 
 ## Note on leftover local files
 
-Earlier this directory held full copies of `agents/`, `backend/`, `frontend/`
-and prebuilt `aguidemo_v*.zip` bundles. Those duplicated `Phase0/` and have been
-removed from version control. Any `agents/`, `backend/`, `frontend/`, `build/`
-or `*.zip` still on your disk here are **untracked local artifacts** (including a
-possible local `agents/.env` with a real gateway key) — safe to delete once
-you've copied any secrets you need into the Phase 0 locations above.
+> **`agents/` is NOT a leftover.** An earlier revision of this note called any
+> `agents/` here a deletable local artifact. That was true for about a day, and is
+> now dangerously wrong: `agents/` is the tracked enterprise fork (invariant 4).
+> Deleting it deletes the gateway-only build that the enterprise runs.
+
+Earlier this directory held full copies of `backend/` and `frontend/` and prebuilt
+`aguidemo_v*.zip` bundles. Those duplicated `Phase0/` and have been removed from
+version control. Any `backend/`, `frontend/`, `build/` or `*.zip` still on your
+disk here are **untracked local artifacts** — safe to delete.
+
+`agents/.env` is also untracked, but it holds the real gateway key: do not delete
+it without keeping the key somewhere, and never commit it.

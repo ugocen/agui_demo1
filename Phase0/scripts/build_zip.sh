@@ -5,9 +5,15 @@
 # the package root, normalizes permissions, zips from inside the package
 # folder, and fails loudly on size or architecture violations.
 #
-# The zip is REPRODUCIBLE: the same requirements.txt and sources always produce
-# byte-identical output, so a rebuild that changes nothing changes no bytes, and
-# two machines can compare checksums to prove they built the same package.
+# The zip is REPRODUCIBLE given the same RESOLVED dependencies: this script removes
+# every source of non-determinism it controls (timestamps, entry order, extra
+# attributes), so two builds minutes apart from unchanged sources are byte-identical.
+#
+# It does NOT pin the resolution. requirements.txt pins only direct dependencies, so
+# a transitive one publishing a new release changes the zip through no change of
+# ours (observed: langsmith 0.10.4 -> 0.10.5 between two builds a day apart). A
+# checksum mismatch between two machines is therefore not proof of tampering until
+# you have ruled that out. Pinning it properly needs a lock file or --exclude-newer.
 
 set -euo pipefail
 

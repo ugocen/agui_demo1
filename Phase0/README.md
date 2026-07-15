@@ -90,10 +90,12 @@ npm install
 npm run dev   # http://localhost:3000
 ```
 
-Local end-to-end without AWS (release agent only, no Bedrock needed until the
-final summary): run the release agent on port 8080, then start the backend
-with `LOCAL_AGENT_URL_RELEASE=http://127.0.0.1:8080/invocations`. The proxy
-then targets the local process instead of AgentCore. Unset it for real runs.
+An agent can be run standalone on port 8080 (`python agent.py`) for debugging,
+but **the backend cannot be pointed at it**: `agui_proxy.py` resolves every target
+from the DB catalog entry's AgentCore `runtime_arn` and SigV4-signs the call. The
+`LOCAL_AGENT_URL_*` override this README used to describe no longer exists in the
+code. To exercise a local agent, post an AG-UI request straight to its
+`/invocations`, or check liveness with `curl localhost:8080/ping`.
 
 ## Database
 

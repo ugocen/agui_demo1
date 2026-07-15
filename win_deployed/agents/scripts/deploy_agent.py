@@ -184,7 +184,8 @@ def main() -> None:
     existing = find_existing_runtime(control, runtime_name)
     env_vars = build_env_vars(env, control, existing["agentRuntimeId"] if existing else None)
     if "BEDROCK_ENDPOINT_URL" in env_vars and "BEDROCK_API_KEY" in env_vars:
-        print("Gateway mode: BEDROCK_ENDPOINT_URL + BEDROCK_API_KEY set on the runtime")
+        print("Gateway config present: BEDROCK_ENDPOINT_URL + BEDROCK_API_KEY set on the runtime")
+        print("  (only a cloud_deploy/agents/ build can use these; a Phase0/agents/ build ignores them)")
 
     runtime_config = {
         "agentRuntimeArtifact": {
