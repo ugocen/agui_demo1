@@ -56,8 +56,10 @@ win_deployed/
 │   ├── _payload.sh        # THE definition of what ships; sourced by the two scripts below
 │   ├── build_packages.sh  # re-sync payload from Phase0/ + rewrite MANIFEST.sha256
 │   ├── check_sync.sh      # read-only drift check: has Phase0/ moved on?
-│   └── make_zips.sh       # produce dist/*.zip + SHA256SUMS.txt
-├── dist/                  # generated zips (TRACKED; created by make_zips.sh)
+│   ├── make_zips.sh       # produce the 3 SOURCE zips dist/agui-*-<VERSION>.zip
+│   └── make_agentcore_zips.sh  # produce the 5 DEPLOYABLE dist/agentcore/<agent>-<VERSION>.zip
+├── dist/                  # generated zips (TRACKED)
+│   └── agentcore/         # the packages you upload to AgentCore (~151 MB)
 │
 ├── backend/               # PAYLOAD 1 -> own Bitbucket repo (21 files)
 │   ├── app/               # verbatim from Phase0/backend/app/
@@ -130,8 +132,8 @@ Run this before any delivery, and any time you touch `Phase0/`.
 win_deployed/scripts/make_zips.sh
 ```
 
-Wipes and recreates `win_deployed/dist/`, then writes one zip per payload named
-from `VERSION`:
+Rewrites the three source payload zips, named from `VERSION` (it leaves
+`dist/agentcore/` alone):
 
 ```
 dist/agui-backend-<VERSION>.zip
@@ -146,21 +148,31 @@ transfer (`shasum -a 256 -c SHA256SUMS.txt` in WSL).
 
 ### Built AgentCore packages (`dist/agentcore/`)
 
-`make_zips.sh` produces the **source** delivery zips. The **built** AgentCore
-packages are a separate artifact, produced by `agents/scripts/build_zip.sh`:
+`make_zips.sh` produces the **source** delivery zips. The **deployable** AgentCore
+packages are a separate artifact with its own script:
 
 ```bash
-# from the agents payload, once per agent
-./scripts/build_zip.sh ./sdlc-planner-strands     # -> build/sdlc-planner-strands.zip
+win_deployed/scripts/make_agentcore_zips.sh
+# -> dist/agentcore/<agent>-<VERSION>.zip  (+ SHA256SUMS.txt)
 ```
+
+It packages `win_deployed/agents/` — the enterprise fork, synced from
+`cloud_deploy/agents/` — so run `build_packages.sh` first if the sources moved.
+The version is in the filename so a package on disk, or already uploaded to a
+runtime, can be identified without unzipping it.
+
+Staging these used to be a hand-run `build_zip.sh` + `cp` + `shasum` sequence with
+nothing enforcing it, while `make_zips.sh` deleted `dist/agentcore/` on every run.
+The omission was invisible — `dist/` still looked populated. `make_zips.sh` now
+removes only its own `agui-*.zip`, and this script owns `dist/agentcore/`.
 
 They are ~27–42 MB each (~151 MB total) because every dependency is vendored as
 a **linux/arm64** wheel — AgentCore runs on ARM64 and does not `pip install` at
 deploy time. The 36 KB source zip is **not** deployable; it carries no
 dependencies.
 
-Copy them to `dist/agentcore/` with a `SHA256SUMS.txt` when shipping. They are
-**tracked in git** — safe because `build_zip.sh` is **reproducible** (see below).
+They are **tracked in git** — see "Why `dist/` is committed" below, including the
+caveat that reproducibility is bounded by transitive-dependency drift.
 
 ### Why `dist/` is committed
 
@@ -178,18 +190,17 @@ Unusually for build output, the zips **are tracked in git** (the root
   sources are byte-for-byte identical — verified by building all five agents
   twice and comparing checksums.
 
-  **The caveat that matters:** each `requirements.txt` pins only its *direct*
-  dependencies. Transitive ones float, so a rebuild after any of them publishes a
-  new release produces a different zip through no change of ours. This is not
-  theoretical — the 1.2.0 rebuild picked up `langsmith` 0.10.4 → 0.10.5 in
-  `release-readiness-langgraph` on its own. Determinism here is bounded by time,
-  not guaranteed by the script.
-- **Reproducibility is a verification tool, with that same caveat.** The
-  enterprise side can run `build_zip.sh` and compare its checksum to
-  `agentcore/SHA256SUMS.txt`; a match proves both machines built the same
-  artifact. A *mismatch* does not prove tampering — check whether a transitive
-  dependency moved first. Making this check trustworthy needs a fully pinned
-  resolution (a lock file, or `uv --exclude-newer`); we do not have one yet.
+  Dependencies are installed from each agent's `requirements.lock` (the full
+  pinned resolution, 54 packages), not from `requirements.txt` (6 direct pins), so
+  the resolution cannot drift between builds. Before the lock it did, twice:
+  `langsmith` 0.10.4 → 0.10.5 (1.2.0) and `botocore` 1.43.48 → 1.43.49 across all
+  five packages (1.4.0). Regenerate a lock with `Phase0/scripts/lock_agents.sh`
+  and review the diff — that is where a dependency change is meant to be seen.
+- **Reproducibility is a verification tool.** The enterprise side can run
+  `build_zip.sh` and compare its checksum to `agentcore/SHA256SUMS.txt`; a match
+  proves both machines built the same artifact, and since 1.5.0 a mismatch means
+  something — the inputs are pinned, so it is no longer explained away by a
+  transitive dependency having moved.
 - **They are safe.** Payloads contain no secrets — only `*.example` templates.
   `BEDROCK_API_KEY` ships blank by design.
 

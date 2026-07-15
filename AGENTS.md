@@ -116,10 +116,20 @@ and `cloud_deploy/agents/<name>/` (gateway). Both hold `sdlc-planner-strands`,
 **Every agent change must land in both copies:**
 
 ```bash
+# after editing requirements.txt (skip otherwise) — regenerate the pinned resolution
+./Phase0/scripts/lock_agents.sh              # -> requirements.lock, REVIEW the diff
+
 # after editing anything under Phase0/agents/
 ./cloud_deploy/scripts/sync_agents.sh        # copies all but model_factory.py
 ./cloud_deploy/scripts/check_agent_sync.sh   # gate: no drift, no provider bleed
 ```
+
+Each agent carries a **`requirements.lock`** — the full pinned resolution (54
+packages, vs the 6-8 direct ones in `requirements.txt`). `build_zip.sh` installs
+from it and **refuses to build without it**, or if it is older than
+`requirements.txt`. Unpinned transitive dependencies silently changed the
+delivered bytes twice, so the lock is what makes a dependency bump a reviewable
+diff instead of a surprise found by comparing zips.
 
 ## Where things live
 

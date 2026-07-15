@@ -20,5 +20,11 @@
   no Bedrock code path, requires `BEDROCK_ENDPOINT_URL` + `BEDROCK_API_KEY` +
   `BEDROCK_MODEL_ID`, and raises without them. See `Phase0/agents/.env.example`
   and `cloud_deploy/env/agents.env.example`. Never hardcode a model id.
+- **Agent dependencies are locked.** Each agent has a `requirements.lock` (the
+  full pinned resolution) next to its `requirements.txt` (direct pins only).
+  `build_zip.sh` installs from the lock and refuses to build without it. After
+  changing `requirements.txt`, run `Phase0/scripts/lock_agents.sh` and review the
+  lock diff — that diff is the only place a dependency change is visible before
+  it ships.
 - Never commit AWS credentials or gateway API keys. Keep them in `.env` files
   (gitignored) or the deploy environment, never in code.

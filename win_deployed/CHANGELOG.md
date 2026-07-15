@@ -14,6 +14,72 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.5.0] — 2026-07-16
+
+### Added — the delivered bytes are now actually reproducible
+
+- **Every agent carries a `requirements.lock`** and `build_zip.sh` installs from
+  it. `requirements.txt` pins only the direct dependencies — **6 of the 54
+  packages** that end up in a zip. The other 48 were resolved fresh against live
+  PyPI on every build, so a rebuild changed what shipped on its own: `langsmith`
+  0.10.4 → 0.10.5 (1.2.0), then `botocore` 1.43.48 → 1.43.49 across all five
+  (1.4.0). Both were found by comparing zips afterwards. Neither was reviewed.
+
+  **The gain is visibility more than determinism.** With a lock, those bumps are a
+  one-line diff in `requirements.lock` that someone approves before it ships.
+
+  Verified: two consecutive builds from unchanged sources are now
+  **byte-identical**. `README.md`'s reproducibility claim is finally true without
+  a caveat, and a checksum mismatch against `agentcore/SHA256SUMS.txt` means
+  something again.
+
+- **The lock is mandatory.** `build_zip.sh` refuses to build without one, and
+  refuses if `requirements.txt` is newer than the lock. There is deliberately no
+  fall back to `requirements.txt`: a silent fallback to an unpinned resolution is
+  the failure this removes. Regenerate with `Phase0/scripts/lock_agents.sh`.
+
+### Unchanged
+
+**The lock changed nothing about what ships.** It captured the resolution 1.4.0
+was already using — a package-by-package comparison of 1.4.0 vs 1.5.0 shows no
+version differences. It froze the current state rather than moving it.
+
+The lock is a build input, not a runtime file: it is not inside the deployable
+zips (`build_zip.sh` copies only `*.py`), but it does travel in
+`agui-agents-<VERSION>.zip` so this side can rebuild identically.
+
+## [1.4.0] — 2026-07-16
+
+### Changed
+
+- **The deployable packages now carry the version in their filename**:
+  `dist/agentcore/<agent>-1.4.0.zip`, was `<agent>.zip`. A package on disk, or one
+  already uploaded to a runtime, can now be identified without unzipping it. The
+  rename costs nothing in git — an unchanged package keeps its content hash, so a
+  version bump is a tree entry, not another 151 MB of blobs.
+
+- **`make_agentcore_zips.sh` now produces them.** Staging these was a hand-run
+  `build_zip.sh` + `cp` + `shasum` sequence documented in the README with nothing
+  enforcing it — and `make_zips.sh` deleted `dist/agentcore/` on every run while
+  only recreating the three source zips. The gap was invisible, because `dist/`
+  still looked populated afterwards. `make_zips.sh` now removes only its own
+  `agui-*.zip`; `dist/agentcore/` has an owner.
+
+### Dependency drift picked up by this rebuild
+
+- **`botocore` 1.43.48 → 1.43.49, in all five packages.** Nothing of ours changed;
+  the rebuild resolved a newer transitive dependency. `boto3` is pinned at
+  `1.43.46` and stayed there — `botocore` is *its* dependency and is not pinned by
+  anything.
+
+  This is the second such drift in two days (`langsmith` 0.10.4 → 0.10.5 in 1.2.0),
+  and this one moved **every** package rather than one. The rebuild was verified:
+  all five still carry the current agent sources byte-for-byte, the gateway-only
+  factory, zero Bedrock fallback and port 8080. But it is now demonstrated, not
+  theoretical, that a rebuild changes the delivered bytes on its own — pinning the
+  full resolution (a lock file, or `uv --exclude-newer`) is the fix and is still
+  not done.
+
 ## [1.3.0] — 2026-07-16
 
 ### Added
