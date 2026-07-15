@@ -163,6 +163,12 @@ the branch → open a PR → merge the PR → `git pull` `main`. Never commit
 directly to `main`; never force-push `main`. On push rejection,
 `git pull --rebase`. See `.agents/rules/50-collaboration.md`.
 
+**Branches are permanent — never delete one.** Merging does not retire a
+branch; it stays after the merge, local and remote. Merge with plain
+`gh pr merge` — never `--delete-branch`/`-d`, `git branch -d`/`-D`,
+`git push origin --delete`, or `/clean_gone`. `main` keeps the result of a
+change; only the branch keeps the work that produced it.
+
 ## Tool-specific setup
 
 - **Claude Code:** `CLAUDE.md` (imports this file), `.claude/agents/`
