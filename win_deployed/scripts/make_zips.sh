@@ -2,7 +2,11 @@
 # Produce the zips to hand to the enterprise environment (which has no git access).
 #
 # Usage:  win_deployed/scripts/make_zips.sh
-# Output: win_deployed/dist/<name>-<version>.zip  (three zips + a checksum file)
+# Output: win_deployed/dist/agui-<name>-<version>.zip  (three zips + a checksum file)
+#
+# These are the SOURCE payloads. The deployable AgentCore packages are a separate
+# artifact under dist/agentcore/ — run make_agentcore_zips.sh for those. This
+# script leaves that directory alone.
 #
 # Each zip expands into a SELF-CONTAINED project directory that becomes its own
 # Bitbucket repository on the enterprise side (see win_deployed/README.md).
@@ -18,8 +22,12 @@ VERSION="$(tr -d '[:space:]' < "$OUT/VERSION")"
 
 [ -n "$VERSION" ] || { echo "FAIL: win_deployed/VERSION is empty" >&2; exit 1; }
 
-rm -rf "$DIST"
+# Clear only what this script owns. dist/agentcore/ belongs to
+# make_agentcore_zips.sh and must survive: a plain `rm -rf "$DIST"` here silently
+# deleted ~151 MB of committed, deployable packages and left dist/ looking
+# complete, because the three zips below reappear immediately.
 mkdir -p "$DIST"
+rm -f "$DIST"/agui-*.zip "$DIST/SHA256SUMS.txt"
 
 for tree in backend frontend agents; do
   [ -d "$OUT/$tree" ] || { echo "FAIL: missing $OUT/$tree — run build_packages.sh first" >&2; exit 1; }
@@ -36,7 +44,8 @@ for tree in backend frontend agents; do
   )
 done
 
-( cd "$DIST" && shasum -a 256 ./*.zip > SHA256SUMS.txt )
+# Only the source zips live at the top level; agentcore/ has its own sums file.
+( cd "$DIST" && shasum -a 256 ./agui-*.zip > SHA256SUMS.txt )
 
 echo
 echo "OK: zips ready in win_deployed/dist/ (version $VERSION)"

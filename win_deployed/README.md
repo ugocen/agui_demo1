@@ -56,8 +56,10 @@ win_deployed/
 │   ├── _payload.sh        # THE definition of what ships; sourced by the two scripts below
 │   ├── build_packages.sh  # re-sync payload from Phase0/ + rewrite MANIFEST.sha256
 │   ├── check_sync.sh      # read-only drift check: has Phase0/ moved on?
-│   └── make_zips.sh       # produce dist/*.zip + SHA256SUMS.txt
-├── dist/                  # generated zips (TRACKED; created by make_zips.sh)
+│   ├── make_zips.sh       # produce the 3 SOURCE zips dist/agui-*-<VERSION>.zip
+│   └── make_agentcore_zips.sh  # produce the 5 DEPLOYABLE dist/agentcore/<agent>-<VERSION>.zip
+├── dist/                  # generated zips (TRACKED)
+│   └── agentcore/         # the packages you upload to AgentCore (~151 MB)
 │
 ├── backend/               # PAYLOAD 1 -> own Bitbucket repo (21 files)
 │   ├── app/               # verbatim from Phase0/backend/app/
@@ -130,8 +132,8 @@ Run this before any delivery, and any time you touch `Phase0/`.
 win_deployed/scripts/make_zips.sh
 ```
 
-Wipes and recreates `win_deployed/dist/`, then writes one zip per payload named
-from `VERSION`:
+Rewrites the three source payload zips, named from `VERSION` (it leaves
+`dist/agentcore/` alone):
 
 ```
 dist/agui-backend-<VERSION>.zip
@@ -146,21 +148,31 @@ transfer (`shasum -a 256 -c SHA256SUMS.txt` in WSL).
 
 ### Built AgentCore packages (`dist/agentcore/`)
 
-`make_zips.sh` produces the **source** delivery zips. The **built** AgentCore
-packages are a separate artifact, produced by `agents/scripts/build_zip.sh`:
+`make_zips.sh` produces the **source** delivery zips. The **deployable** AgentCore
+packages are a separate artifact with its own script:
 
 ```bash
-# from the agents payload, once per agent
-./scripts/build_zip.sh ./sdlc-planner-strands     # -> build/sdlc-planner-strands.zip
+win_deployed/scripts/make_agentcore_zips.sh
+# -> dist/agentcore/<agent>-<VERSION>.zip  (+ SHA256SUMS.txt)
 ```
+
+It packages `win_deployed/agents/` — the enterprise fork, synced from
+`cloud_deploy/agents/` — so run `build_packages.sh` first if the sources moved.
+The version is in the filename so a package on disk, or already uploaded to a
+runtime, can be identified without unzipping it.
+
+Staging these used to be a hand-run `build_zip.sh` + `cp` + `shasum` sequence with
+nothing enforcing it, while `make_zips.sh` deleted `dist/agentcore/` on every run.
+The omission was invisible — `dist/` still looked populated. `make_zips.sh` now
+removes only its own `agui-*.zip`, and this script owns `dist/agentcore/`.
 
 They are ~27–42 MB each (~151 MB total) because every dependency is vendored as
 a **linux/arm64** wheel — AgentCore runs on ARM64 and does not `pip install` at
 deploy time. The 36 KB source zip is **not** deployable; it carries no
 dependencies.
 
-Copy them to `dist/agentcore/` with a `SHA256SUMS.txt` when shipping. They are
-**tracked in git** — safe because `build_zip.sh` is **reproducible** (see below).
+They are **tracked in git** — see "Why `dist/` is committed" below, including the
+caveat that reproducibility is bounded by transitive-dependency drift.
 
 ### Why `dist/` is committed
 

@@ -14,6 +14,38 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.4.0] — 2026-07-16
+
+### Changed
+
+- **The deployable packages now carry the version in their filename**:
+  `dist/agentcore/<agent>-1.4.0.zip`, was `<agent>.zip`. A package on disk, or one
+  already uploaded to a runtime, can now be identified without unzipping it. The
+  rename costs nothing in git — an unchanged package keeps its content hash, so a
+  version bump is a tree entry, not another 151 MB of blobs.
+
+- **`make_agentcore_zips.sh` now produces them.** Staging these was a hand-run
+  `build_zip.sh` + `cp` + `shasum` sequence documented in the README with nothing
+  enforcing it — and `make_zips.sh` deleted `dist/agentcore/` on every run while
+  only recreating the three source zips. The gap was invisible, because `dist/`
+  still looked populated afterwards. `make_zips.sh` now removes only its own
+  `agui-*.zip`; `dist/agentcore/` has an owner.
+
+### Dependency drift picked up by this rebuild
+
+- **`botocore` 1.43.48 → 1.43.49, in all five packages.** Nothing of ours changed;
+  the rebuild resolved a newer transitive dependency. `boto3` is pinned at
+  `1.43.46` and stayed there — `botocore` is *its* dependency and is not pinned by
+  anything.
+
+  This is the second such drift in two days (`langsmith` 0.10.4 → 0.10.5 in 1.2.0),
+  and this one moved **every** package rather than one. The rebuild was verified:
+  all five still carry the current agent sources byte-for-byte, the gateway-only
+  factory, zero Bedrock fallback and port 8080. But it is now demonstrated, not
+  theoretical, that a rebuild changes the delivered bytes on its own — pinning the
+  full resolution (a lock file, or `uv --exclude-newer`) is the fix and is still
+  not done.
+
 ## [1.3.0] — 2026-07-16
 
 ### Added
