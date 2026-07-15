@@ -12,6 +12,14 @@ the branch → open a PR → merge the PR → `git pull` `main`. Never commit
 directly to `main`; never force-push `main`. On push rejection,
 `git pull --rebase`. Full rule: `.agents/rules/50-collaboration.md`.
 
+**Never delete a branch.** Merging a PR does not retire its branch — it stays,
+local and remote, indefinitely. Merge with plain `gh pr merge`; never pass
+`--delete-branch`/`-d`, and never run `git branch -d`/`-D`,
+`git push origin --delete <branch>`, or the `/clean_gone` command (it
+`git branch -D`s every `[gone]` branch and force-removes its worktree).
+GitHub's auto-delete stays off (`deleteBranchOnMerge: false`). If a branch
+truly has to go, the user decides — ask.
+
 **Confirm the merge actually landed:** after `gh pr merge`, check
 `git log --oneline -1 origin/main`. A PR aimed at the wrong base merges
 "successfully" and reports success while `main` never receives the change — this
