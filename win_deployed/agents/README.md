@@ -36,23 +36,32 @@ Each agent directory is **self-contained**: its own `agent.py`, its own
 
 This is the part that matters most in the enterprise environment.
 
-**There is one codebase.** The agents do not know or care which provider they are
-talking to. `model_factory.py` decides at startup, purely from environment
-variables:
+**These agents can only talk to the gateway.** There is no provider switch and no
+Amazon Bedrock code path in this build — not a disabled one, not a fallback: the
+code simply is not there. No environment variable, and no mistake in the console,
+can send a model call to Bedrock.
 
 ```
-Gateway mode is ON  if and only if  BEDROCK_ENDPOINT_URL and BEDROCK_API_KEY are BOTH non-empty.
+BEDROCK_ENDPOINT_URL + BEDROCK_API_KEY + BEDROCK_MODEL_ID are MANDATORY.
+Missing any one -> RuntimeError at startup. There is nothing to fall back to.
 ```
 
-- **Gateway mode ON** → model calls go to the **GenAI marketplace API gateway**,
-  authenticated with an **`x-api-key` header**. Internally the agent builds a
-  `bedrock-runtime` client pointed at your endpoint with dummy static
-  credentials, and registers a hook that injects the key on `Converse`,
-  `ConverseStream` and `CountTokens`. The SigV4 signature it still computes is
-  ignored by the gateway.
-- **Gateway mode OFF** (either variable empty) → the agent falls back to **Amazon
-  Bedrock via AWS SigV4**. In an account with no Bedrock model access this fails
-  at the first model call. **This is not what the enterprise environment wants.**
+Model calls go to the **GenAI marketplace API gateway**, authenticated with an
+**`x-api-key` header**. Internally the agent builds a `bedrock-runtime` client
+pointed at your endpoint with dummy static credentials and a placeholder region,
+and registers a hook that injects the key on `Converse`, `ConverseStream` and
+`CountTokens`. The SigV4 signature it still computes is ignored by the gateway.
+
+This build is deliberately one-way. An earlier version chose the provider from
+the environment and fell back to Bedrock whenever a variable was empty — silently,
+in an account that has no Bedrock model access. The provider is now fixed by which
+build you are running, so that failure mode cannot occur.
+
+**What a missing variable looks like:** the agent raises before its HTTP server
+binds, so the runtime never answers `/ping`, never goes healthy, and the invoke
+fails with an initialization timeout — indistinguishable from a wrong-port bug
+unless you read the logs. The actual `RuntimeError` naming the missing variable is
+in the runtime's `[runtime-logs]` CloudWatch stream.
 
 ### Environment variables
 
@@ -270,8 +279,13 @@ It serves `POST /invocations` (SSE) and `GET /ping` on:
 | `sdlc-planner-strands` | 8080 |
 | `release-readiness-langgraph` | 8080 |
 | `bug-report-strands` | 8080 |
-| `a2ui-demo-strands` | 8090 |
-| `press-release-strands` | 8091 |
+| `a2ui-demo-strands` | 8080 |
+| `press-release-strands` | 8080 |
+
+All five serve 8080, which is the port AgentCore health-checks. Two of them used
+to serve 8090/8091 as local side-by-side dev ports; on AgentCore that meant
+nothing ever answered `/ping`, the runtime never went healthy, and every invoke
+failed with an initialization timeout. Do not reintroduce a per-agent port.
 
 A locally running agent **cannot be reached through the backend.** The backend
 proxy resolves every target from its catalog entry's AgentCore `runtime_arn` and

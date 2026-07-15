@@ -67,18 +67,57 @@ fill secrets:
 Enterprise Bedrock/AgentCore-Bedrock is unavailable, and there is no scripted
 deploy path here — deployment is **manual via the AgentCore Console**.
 
-1. **Build** each agent zip from the single source with the ARM64 packager:
-   ```bash
-   Phase0/scripts/build_zip.sh Phase0/agents/<agent-dir>
+> **Package the enterprise copy, never `Phase0/agents/`.** `Phase0/agents/` is
+> Bedrock-only (invariant 4) and would be dead on arrival in an account with no
+> Bedrock model access. The zip must come from `cloud_deploy/agents/`.
+
+1. **Get the zip.** The built, gateway-only packages are already committed and
+   verified — prefer them over rebuilding:
    ```
-   (Output: `Phase0/build/<agent>.zip`.)
-2. **Create the runtime** in the enterprise AgentCore Console (protocol `AGUI`),
-   uploading the zip, and set the runtime **environment variables** from
-   `env/agents.env.example` — critically `BEDROCK_ENDPOINT_URL`,
-   `BEDROCK_API_KEY`, and `BEDROCK_MODEL_ID`. Setting these flips the agent to
-   gateway mode automatically.
-3. **Backend + frontend** run the Phase 0 code with the enterprise env files
+   win_deployed/dist/agentcore/<agent>.zip
+   ```
+   To rebuild from source instead, point the ARM64 packager at the **enterprise**
+   copy (output still lands in `Phase0/build/<agent>.zip`):
+   ```bash
+   Phase0/scripts/build_zip.sh cloud_deploy/agents/<agent-dir>
+   ```
+2. **Create the runtime** in the enterprise AgentCore Console: protocol `AGUI`,
+   runtime `PYTHON_3_13`, entrypoint `agent.py`, upload the zip.
+3. **Set the runtime environment variables.** The console is the only place these
+   are supplied — they are not in the zip. All three are **mandatory**; the agent
+   raises `RuntimeError` at startup without them and has no Bedrock fallback:
+
+   | Variable | Value |
+   |---|---|
+   | `BEDROCK_ENDPOINT_URL` | Gateway **base** URL, e.g. `https://genaiapigwna.jnj.com`. No `/model/...` or `/converse` path — botocore appends it. |
+   | `BEDROCK_API_KEY` | The gateway key. Sent as the `x-api-key` header. |
+   | `BEDROCK_MODEL_ID` | e.g. `global.anthropic.claude-sonnet-4-5-20250929-v1:0`. There is no default. |
+   | `BEDROCK_STREAMING` | Optional, defaults on. Set `false` if the gateway does not proxy `converse-stream`. |
+
+   Forgetting one produces the *same* symptom as a wrong port — the runtime never
+   goes healthy and the invoke fails with an initialization timeout. The real
+   error is in the `[runtime-logs]` stream of the runtime's log group; see
+   "Reading the logs" below.
+4. **Backend + frontend** run the Phase 0 code with the enterprise env files
    above.
+
+### Reading the logs
+
+One log group per runtime endpoint, created by AgentCore on first invocation:
+
+```
+/aws/bedrock-agentcore/runtimes/<runtimeId>-DEFAULT
+  ├─ [runtime-logs] <UUID>   ← stdout/stderr: tracebacks, the RuntimeError above
+  └─ otel-rt-logs            ← ADOT structured logs + spans
+```
+
+The runtime id is `<agent-name with - replaced by _>-<suffix AgentCore generates>`,
+so `a2ui-demo-strands` becomes e.g. `a2ui_demo_strands-XjHRIuAVCG`. List them with
+`aws bedrock-agentcore-control list-agent-runtimes`, then
+`aws logs tail /aws/bedrock-agentcore/runtimes/<id>-DEFAULT --since 1d`.
+
+Spans and traces (GenAI Observability) additionally need **CloudWatch Transaction
+Search** enabled once per account+region.
 
 ## Note on leftover local files
 

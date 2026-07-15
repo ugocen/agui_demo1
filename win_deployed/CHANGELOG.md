@@ -14,6 +14,68 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.2.0] — 2026-07-15
+
+### Fixed
+
+- **Tracing was probably disabled on AgentCore, by us.** `a2ui-demo-strands` and
+  `press-release-strands` decided whether to switch OpenTelemetry off by checking
+  whether `OTEL_EXPORTER_OTLP_ENDPOINT` was set, on the assumption that the
+  AgentCore runtime injects it. **No AWS documentation says it does** — for
+  runtime-hosted agents the docs say observability is enabled automatically, and
+  the opt-out is `DISABLE_ADOT_OBSERVABILITY`. If the variable is not injected,
+  that check set `OTEL_SDK_DISABLED=true` on the runtime as well, turning off the
+  tracing that feeds the `otel-rt-logs` stream and GenAI Observability.
+
+  The guard is now keyed off an explicit **`LOCAL_DEV`** flag, which cannot be
+  wrong about its own environment. It is set in `agents/.env` (never packaged
+  into the zip), so it is present locally and absent on AgentCore. **Do not set
+  `LOCAL_DEV` on a runtime.** It exists because Strands' span instrumentation
+  crashes the local SSE stream; that is a local-only problem.
+
+  Still **unverified**: whether AgentCore injects `OTEL_EXPORTER_OTLP_ENDPOINT`.
+  This change makes the answer stop mattering.
+
+### Changed — documentation that had gone false
+
+The `1.1.0` fork removed the Bedrock fallback from the agents, but the
+hand-written enterprise docs still described the old env-driven behaviour. They
+are not covered by the drift check (they have no `Phase0/` counterpart), so they
+went stale silently. Since deployment here is **manual via the AgentCore
+Console**, these documents *are* the deployment mechanism:
+
+- **`agents/.env.example`** claimed the agents "fall back to Amazon Bedrock via
+  SigV4" if a variable was empty, and that `BEDROCK_MODEL_ID` "falls back to
+  Claude Haiku 4.5". Both were untrue as of 1.1.0 — all three variables are
+  mandatory and the agent raises without them. It now also states that a deployed
+  agent never reads this file: the same values must be entered as runtime
+  environment variables in the console.
+- **`agents/README.md`** still listed `a2ui-demo-strands` on port 8090 and
+  `press-release-strands` on 8091 — the exact bug fixed in 1.0.2. All five serve
+  8080. Its "gateway mode ON/OFF" section is replaced with what the build
+  actually does.
+- **`README.md`** repeated "gateway mode activates when both … are set".
+
+Also documented: what a missing variable actually looks like (an initialization
+timeout, indistinguishable from a wrong port) and where the real error is (the
+runtime's `[runtime-logs]` CloudWatch stream, not `otel-rt-logs`).
+
+### Dependency drift picked up by this rebuild
+
+- **`langsmith` 0.10.4 → 0.10.5** inside
+  `dist/agentcore/release-readiness-langgraph.zip`. Nothing of ours changed in
+  that agent; the rebuild resolved a newer transitive dependency published
+  upstream since 1.1.0.
+
+  This exposed an overstated claim in `README.md`: the built packages were
+  described as reproducible full stop. They are reproducible **given the same
+  resolved dependencies** — each `requirements.txt` pins only direct
+  dependencies, so transitive ones float and a rebuild days later can differ
+  through no change of ours. The README now says so, and notes that a checksum
+  mismatch against `agentcore/SHA256SUMS.txt` is not by itself evidence of
+  tampering. Fixing this properly needs a fully pinned resolution (a lock file,
+  or `uv --exclude-newer`); that is not done yet.
+
 ## [1.1.0] — 2026-07-14
 
 ### Changed

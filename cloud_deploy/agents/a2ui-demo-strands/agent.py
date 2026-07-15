@@ -21,13 +21,19 @@ try:
 except ImportError:
     pass
 
-# Strands' OpenTelemetry span instrumentation raises a contextvar
-# "detach ... created in a different Context" error under local async streaming,
-# which aborts the SSE mid-run (empty A2UI surface). Disable it ONLY for local
-# dev — detected by the absence of an OTEL exporter endpoint. On AgentCore the
-# runtime sets OTEL_EXPORTER_OTLP_ENDPOINT (its ADOT collector), so we leave OTEL
-# ON there and traces flow to CloudWatch as usual. Must run before importing strands.
-if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+# Strands' OpenTelemetry span instrumentation crashes the local SSE stream
+# (contextvar detach across the async-generator boundary), so a local run has to
+# turn OTEL off. Keyed off an explicit LOCAL_DEV flag (set it in agents/.env).
+#
+# It previously inferred "am I local?" from OTEL_EXPORTER_OTLP_ENDPOINT being
+# unset, on the assumption that AgentCore injects it. No AWS documentation says
+# that: for runtime-hosted agents the docs say observability is enabled
+# automatically, and the opt-out is DISABLE_ADOT_OBSERVABILITY. If the variable
+# is not in fact injected, that check silently set OTEL_SDK_DISABLED=true on
+# AgentCore too — turning off the very tracing we deploy there to get. An
+# explicit flag cannot be wrong about its own environment; .env never ships in
+# the zip, so LOCAL_DEV is present locally and absent on AgentCore.
+if os.environ.get("LOCAL_DEV", "").strip().lower() in ("1", "true", "yes", "on"):
     os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
 from ag_ui_strands import StrandsAgent

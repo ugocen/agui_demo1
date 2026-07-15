@@ -44,11 +44,18 @@ def build_env_vars(env: dict, control, existing_runtime_id: str | None) -> dict:
     On UPDATE, start from the runtime's current environmentVariables. AgentCore's
     update_agent_runtime REPLACES the whole map, so without this merge a redeploy
     would silently strip values set out-of-band — most importantly the enterprise
-    gateway config entered in the console, which would drop the agent back to
-    Bedrock/SigV4 (and fail in an account with no Bedrock access).
+    gateway config entered in the console, which the enterprise agents cannot
+    start without.
 
-    Gateway mode (model_factory.use_gateway) needs BOTH BEDROCK_ENDPOINT_URL and
-    BEDROCK_API_KEY; they are passed through only when present in .env.
+    This script serves BOTH copies (AGENTS.md invariant 4), which is why the
+    gateway variables are passed through rather than required: deploying a
+    Phase0/agents/ (Bedrock-only) agent legitimately has none, while a
+    cloud_deploy/agents/ (gateway-only) agent needs all of BEDROCK_ENDPOINT_URL,
+    BEDROCK_API_KEY and BEDROCK_MODEL_ID. The agent itself enforces that — it
+    raises at startup — so the check lives where it can tell the two apart. The
+    cost is that a gateway agent deployed without them fails at runtime, not
+    here, and the symptom is an unhelpful initialization timeout; the real error
+    is in the runtime's [runtime-logs] CloudWatch stream.
     """
     merged: dict = {}
     if existing_runtime_id:
