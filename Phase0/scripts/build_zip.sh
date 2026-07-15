@@ -5,15 +5,19 @@
 # the package root, normalizes permissions, zips from inside the package
 # folder, and fails loudly on size or architecture violations.
 #
-# The zip is REPRODUCIBLE given the same RESOLVED dependencies: this script removes
-# every source of non-determinism it controls (timestamps, entry order, extra
-# attributes), so two builds minutes apart from unchanged sources are byte-identical.
+# The zip is REPRODUCIBLE. Two things are needed for that and this script has both:
 #
-# It does NOT pin the resolution. requirements.txt pins only direct dependencies, so
-# a transitive one publishing a new release changes the zip through no change of
-# ours (observed: langsmith 0.10.4 -> 0.10.5 between two builds a day apart). A
-# checksum mismatch between two machines is therefore not proof of tampering until
-# you have ruled that out. Pinning it properly needs a lock file or --exclude-newer.
+#  1. Deterministic packaging — no embedded timestamps, fixed entry order, no
+#     machine-specific attributes (see "Making the package reproducible" below).
+#  2. A pinned resolution — dependencies are installed from requirements.lock,
+#     which pins all 54 packages, not from requirements.txt, which pins only the 6
+#     direct ones. Without this a rebuild silently shipped different bytes: langsmith
+#     0.10.4 -> 0.10.5 (2026-07-15) and botocore 1.43.48 -> 1.43.49 (2026-07-16),
+#     neither reviewed by anyone.
+#
+# So a rebuild from unchanged sources produces byte-identical output, and two
+# machines can compare checksums to prove they built the same package. Regenerate
+# the lock with Phase0/scripts/lock_agents.sh after changing requirements.txt.
 
 set -euo pipefail
 
@@ -28,6 +32,7 @@ PHASE0_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$PHASE0_DIR/build/$AGENT_NAME"
 PACKAGE_DIR="$BUILD_DIR/package"
 ZIP_PATH="$PHASE0_DIR/build/$AGENT_NAME.zip"
+LOCK_PATH="$AGENT_DIR/requirements.lock"
 
 MAX_ZIP_MB=250
 MAX_UNZIPPED_MB=750
@@ -42,15 +47,30 @@ if [ ! -f "$AGENT_DIR/requirements.txt" ]; then
   exit 1
 fi
 
+# The lock is mandatory, with no fall back to requirements.txt. requirements.txt
+# pins only direct dependencies (6 of the 54 packages in a zip), so installing
+# from it resolves the other 48 against live PyPI and silently changes what ships.
+# Falling back "just this once" is exactly how the bytes drifted twice.
+if [ ! -f "$LOCK_PATH" ]; then
+  echo "FAIL: $LOCK_PATH not found — generate it first:" >&2
+  echo "      Phase0/scripts/lock_agents.sh $AGENT_DIR" >&2
+  exit 1
+fi
+if [ "$AGENT_DIR/requirements.txt" -nt "$LOCK_PATH" ]; then
+  echo "FAIL: requirements.txt is newer than requirements.lock — the lock is stale." >&2
+  echo "      Regenerate and review the diff: Phase0/scripts/lock_agents.sh $AGENT_DIR" >&2
+  exit 1
+fi
+
 rm -rf "$BUILD_DIR" "$ZIP_PATH"
 mkdir -p "$PACKAGE_DIR"
 
-echo "==> Installing linux/arm64 dependencies for $AGENT_NAME"
+echo "==> Installing linux/arm64 dependencies for $AGENT_NAME (from requirements.lock)"
 uv pip install \
   --python-platform aarch64-manylinux2014 \
   --python-version "$PYTHON_VERSION" \
   --only-binary=:all: \
-  -r "$AGENT_DIR/requirements.txt" \
+  -r "$LOCK_PATH" \
   --target "$PACKAGE_DIR"
 
 echo "==> Copying agent sources to the package root"

@@ -14,6 +14,40 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.5.0] — 2026-07-16
+
+### Added — the delivered bytes are now actually reproducible
+
+- **Every agent carries a `requirements.lock`** and `build_zip.sh` installs from
+  it. `requirements.txt` pins only the direct dependencies — **6 of the 54
+  packages** that end up in a zip. The other 48 were resolved fresh against live
+  PyPI on every build, so a rebuild changed what shipped on its own: `langsmith`
+  0.10.4 → 0.10.5 (1.2.0), then `botocore` 1.43.48 → 1.43.49 across all five
+  (1.4.0). Both were found by comparing zips afterwards. Neither was reviewed.
+
+  **The gain is visibility more than determinism.** With a lock, those bumps are a
+  one-line diff in `requirements.lock` that someone approves before it ships.
+
+  Verified: two consecutive builds from unchanged sources are now
+  **byte-identical**. `README.md`'s reproducibility claim is finally true without
+  a caveat, and a checksum mismatch against `agentcore/SHA256SUMS.txt` means
+  something again.
+
+- **The lock is mandatory.** `build_zip.sh` refuses to build without one, and
+  refuses if `requirements.txt` is newer than the lock. There is deliberately no
+  fall back to `requirements.txt`: a silent fallback to an unpinned resolution is
+  the failure this removes. Regenerate with `Phase0/scripts/lock_agents.sh`.
+
+### Unchanged
+
+**The lock changed nothing about what ships.** It captured the resolution 1.4.0
+was already using — a package-by-package comparison of 1.4.0 vs 1.5.0 shows no
+version differences. It froze the current state rather than moving it.
+
+The lock is a build input, not a runtime file: it is not inside the deployable
+zips (`build_zip.sh` copies only `*.py`), but it does travel in
+`agui-agents-<VERSION>.zip` so this side can rebuild identically.
+
 ## [1.4.0] — 2026-07-16
 
 ### Changed

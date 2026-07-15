@@ -190,18 +190,17 @@ Unusually for build output, the zips **are tracked in git** (the root
   sources are byte-for-byte identical — verified by building all five agents
   twice and comparing checksums.
 
-  **The caveat that matters:** each `requirements.txt` pins only its *direct*
-  dependencies. Transitive ones float, so a rebuild after any of them publishes a
-  new release produces a different zip through no change of ours. This is not
-  theoretical — the 1.2.0 rebuild picked up `langsmith` 0.10.4 → 0.10.5 in
-  `release-readiness-langgraph` on its own. Determinism here is bounded by time,
-  not guaranteed by the script.
-- **Reproducibility is a verification tool, with that same caveat.** The
-  enterprise side can run `build_zip.sh` and compare its checksum to
-  `agentcore/SHA256SUMS.txt`; a match proves both machines built the same
-  artifact. A *mismatch* does not prove tampering — check whether a transitive
-  dependency moved first. Making this check trustworthy needs a fully pinned
-  resolution (a lock file, or `uv --exclude-newer`); we do not have one yet.
+  Dependencies are installed from each agent's `requirements.lock` (the full
+  pinned resolution, 54 packages), not from `requirements.txt` (6 direct pins), so
+  the resolution cannot drift between builds. Before the lock it did, twice:
+  `langsmith` 0.10.4 → 0.10.5 (1.2.0) and `botocore` 1.43.48 → 1.43.49 across all
+  five packages (1.4.0). Regenerate a lock with `Phase0/scripts/lock_agents.sh`
+  and review the diff — that is where a dependency change is meant to be seen.
+- **Reproducibility is a verification tool.** The enterprise side can run
+  `build_zip.sh` and compare its checksum to `agentcore/SHA256SUMS.txt`; a match
+  proves both machines built the same artifact, and since 1.5.0 a mismatch means
+  something — the inputs are pinned, so it is no longer explained away by a
+  transitive dependency having moved.
 - **They are safe.** Payloads contain no secrets — only `*.example` templates.
   `BEDROCK_API_KEY` ships blank by design.
 
