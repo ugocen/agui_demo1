@@ -111,9 +111,13 @@ payload_sync() {
     mkdir -p "$out/agents/$a"
     rsync -a "${EXCLUDES[@]}" "$agents_src/agents/$a/" "$out/agents/$a/"
   done
-  # Packaging + deployment tooling the enterprise side needs for AgentCore.
+  # Packaging + deployment tooling the enterprise side needs for AgentCore, plus
+  # smoke_test.py: its S0 check is the only way to prove from outside that every
+  # deployed runtime actually boots, and it can only run where the backend and the
+  # runtimes are reachable — inside the enterprise.
   mkdir -p "$out/agents/scripts"
   cp "$src/scripts/build_zip.sh"    "$out/agents/scripts/build_zip.sh"
   cp "$src/scripts/deploy_agent.py" "$out/agents/scripts/deploy_agent.py"
+  cp "$src/scripts/smoke_test.py"   "$out/agents/scripts/smoke_test.py"
   chmod +x "$out/agents/scripts/build_zip.sh"
 }
