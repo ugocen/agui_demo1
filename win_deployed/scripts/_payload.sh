@@ -119,5 +119,8 @@ payload_sync() {
   cp "$src/scripts/build_zip.sh"    "$out/agents/scripts/build_zip.sh"
   cp "$src/scripts/deploy_agent.py" "$out/agents/scripts/deploy_agent.py"
   cp "$src/scripts/smoke_test.py"   "$out/agents/scripts/smoke_test.py"
+  # invoke_agentcore.py: test a runtime straight against AgentCore (SigV4, no
+  # backend) right after uploading a zip — the earliest point you can check it.
+  cp "$src/scripts/invoke_agentcore.py" "$out/agents/scripts/invoke_agentcore.py"
   chmod +x "$out/agents/scripts/build_zip.sh"
 }
