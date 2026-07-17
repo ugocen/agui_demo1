@@ -20,7 +20,7 @@
  */
 
 import { useHumanInTheLoop, useInterrupt } from "@copilotkit/react-core/v2";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod/v3";
 
 type Respond = (value: unknown) => void;
@@ -197,6 +197,20 @@ function ChoiceCard({
 }
 
 // Generic editable form for the "draft_*" tools: pre-fill from args, submit edits.
+//
+// `args` ARRIVES EMPTY AND FILLS IN OVER TIME. CopilotKit renders the card as soon
+// as TOOL_CALL_START lands, then the agent streams the arguments in as
+// TOOL_CALL_ARGS deltas (literally a few characters per event). So the first
+// render sees `{}`.
+//
+// This used to seed the fields with `useState(() => ...args...)`, whose initializer
+// runs ONCE — on that first, empty render. The values then never caught up, and
+// every draft form rendered permanently blank while the agent had sent a full
+// press release. The two cards that read `args` directly in render
+// (ApprovalCard, ChoiceCard) were fine, which is what made this look agent-specific.
+//
+// So: mirror `args` into state as it streams, but never clobber a field the user
+// has already typed in.
 function EditableForm({
   title,
   status,
@@ -210,11 +224,26 @@ function EditableForm({
   args: Record<string, unknown>;
   fields: { key: string; label: string; multiline?: boolean }[];
 }) {
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(fields.map((f) => [f.key, String(args[f.key] ?? "")]))
-  );
+  const [values, setValues] = useState<Record<string, string>>({});
+  const edited = useRef<Set<string>>(new Set());
+  // Depend on the serialized args: the object identity changes on every render,
+  // so [args] would re-run this forever.
+  const argsKey = JSON.stringify(args);
+  useEffect(() => {
+    setValues((prev) => {
+      const next = { ...prev };
+      for (const f of fields) {
+        if (!edited.current.has(f.key)) next[f.key] = String(args[f.key] ?? "");
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [argsKey]);
   const done = isDone(status);
-  const set = (k: string, v: string) => setValues((prev) => ({ ...prev, [k]: v }));
+  const set = (k: string, v: string) => {
+    edited.current.add(k);
+    setValues((prev) => ({ ...prev, [k]: v }));
+  };
   return (
     <div style={box}>
       <strong>{title}</strong>

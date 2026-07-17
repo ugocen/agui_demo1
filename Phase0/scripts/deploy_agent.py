@@ -125,6 +125,40 @@ def runtime_name_for(agent_name: str) -> str:
     return agent_name.replace("-", "_")
 
 
+def resolve_target(control, agent_name: str, target: str):
+    """Find the runtime to update: an explicit --runtime, else the derived name.
+
+    Without --runtime this only ever finds runtimes THIS script created, because it
+    guesses the name from the agent directory. A runtime created by hand in the
+    AgentCore console carries whatever name the operator typed, so the guess misses
+    it and the script silently CREATES A SECOND runtime instead of updating the
+    first — leaving the original (possibly broken) one live and the catalog holding
+    both. That is not hypothetical: four of the five runtimes in the personal
+    account are named Planner / Release_Readiness / Press_Release / A2UI_demo.
+
+    --runtime accepts either the runtime name or a full ARN.
+    """
+    if not target:
+        return find_existing_runtime(control, runtime_name_for(agent_name))
+
+    wanted_arn = target if target.startswith("arn:") else ""
+    wanted_name = "" if wanted_arn else target
+    token = None
+    while True:
+        kwargs = {"maxResults": 100}
+        if token:
+            kwargs["nextToken"] = token
+        page = control.list_agent_runtimes(**kwargs)
+        for runtime in page.get("agentRuntimes", []):
+            if wanted_arn and runtime.get("agentRuntimeArn") == wanted_arn:
+                return runtime
+            if wanted_name and runtime.get("agentRuntimeName") == wanted_name:
+                return runtime
+        token = page.get("nextToken")
+        if not token:
+            sys.exit(f"FAIL: --runtime={target} not found. Deploy without --runtime to create a new one.")
+
+
 def find_existing_runtime(control, runtime_name: str):
     token = None
     while True:
@@ -155,9 +189,16 @@ def wait_until_ready(control, runtime_id: str) -> dict:
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        sys.exit("usage: deploy_agent.py <agent-name> <zip-path>")
-    agent_name, zip_arg = sys.argv[1], sys.argv[2]
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    flags = [a for a in sys.argv[1:] if a.startswith("--")]
+    target = next((f.split("=", 1)[1] for f in flags if f.startswith("--runtime=")), "")
+    if len(args) != 2 or any(not f.startswith("--runtime=") for f in flags):
+        sys.exit(
+            "usage: deploy_agent.py <agent-name> <zip-path> [--runtime=<name-or-arn>]\n"
+            "  --runtime  update an EXISTING runtime whose name this script would not\n"
+            "             guess — e.g. one created by hand in the AgentCore console."
+        )
+    agent_name, zip_arg = args
     if agent_name not in ARN_ENV_KEYS:
         sys.exit(f"FAIL: unknown agent name, expected one of {sorted(ARN_ENV_KEYS)}")
     zip_path = Path(zip_arg).resolve()
@@ -181,7 +222,10 @@ def main() -> None:
 
     # Resolve the runtime first: an update must merge onto its existing env vars.
     runtime_name = runtime_name_for(agent_name)
-    existing = find_existing_runtime(control, runtime_name)
+    existing = resolve_target(control, agent_name, target)
+    if existing:
+        runtime_name = existing["agentRuntimeName"]
+        print(f"Updating existing runtime: {runtime_name}")
     env_vars = build_env_vars(env, control, existing["agentRuntimeId"] if existing else None)
     if "BEDROCK_ENDPOINT_URL" in env_vars and "BEDROCK_API_KEY" in env_vars:
         print("Gateway config present: BEDROCK_ENDPOINT_URL + BEDROCK_API_KEY set on the runtime")

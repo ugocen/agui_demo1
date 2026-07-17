@@ -14,6 +14,61 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.8.0] — 2026-07-17
+
+### Fixed
+
+- **Every `draft_*` form rendered blank.** The press-release and bug-report cards
+  showed empty Headline / Body / Contact fields while the agent had streamed a
+  complete draft.
+
+  `args` **arrives empty and fills in over time**: CopilotKit renders the card as
+  soon as `TOOL_CALL_START` lands, then the agent streams the arguments in as
+  `TOOL_CALL_ARGS` deltas — a few characters per event. `EditableForm` seeded its
+  fields with `useState(() => …args…)`, whose initializer runs **once**, on that
+  first empty render. The values never caught up.
+
+  Proven from the live stream rather than guessed:
+
+  ```
+  TOOL_CALL_START  draft_press_release
+  TOOL_CALL_ARGS   delta: "{\"headline\":"
+  TOOL_CALL_ARGS   delta: " \"Phase 0"
+  TOOL_CALL_ARGS   delta: " Launches t"
+  ```
+
+  The form now mirrors `args` as it streams and stops once the user types in a
+  field, so an edit is never clobbered by a later delta.
+
+  **Why it looked agent-specific:** `ApprovalCard` and `ChoiceCard` read `args`
+  directly in render, so they re-render as deltas land and always worked. Only the
+  two cards that copied args into state were broken — `draft_press_release` and
+  `draft_bug_report`.
+
+  This is the second bug in two days from the frontend mis-reading streamed data
+  (1.7.0 was the interrupt value arriving as a JSON string). Both were invisible to
+  `smoke_test.py`, which asserts on the decoded stream rather than on what the
+  browser renders.
+
+### Added
+
+- **`deploy_agent.py --runtime=<name-or-arn>`** — update an existing runtime whose
+  name the script would not guess.
+
+  Without it the script only finds runtimes **it** created, because it derives the
+  name from the agent directory (`a2ui-demo-strands` → `a2ui_demo_strands`). A
+  runtime created by hand in the console carries whatever name the operator typed,
+  so the guess misses and the script **silently creates a second runtime** —
+  leaving the original live and the catalog holding both. Four of the five runtimes
+  in the personal account are named `Planner` / `Release_Readiness` /
+  `Press_Release` / `A2UI_demo`, so a plain redeploy there would have produced four
+  duplicates. It matters for the enterprise too: deploys there are manual via the
+  console.
+
+The five AgentCore packages are **byte-identical to 1.7.0** — git records all five
+as 100% renames. These are a frontend fix and a deploy-script flag; only
+`agui-frontend` and `agui-agents` changed content.
+
 ## [1.7.0] — 2026-07-16
 
 ### Fixed
