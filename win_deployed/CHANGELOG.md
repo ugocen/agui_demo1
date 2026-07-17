@@ -14,6 +14,43 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.7.0] — 2026-07-16
+
+### Fixed
+
+- **The release Go/No-Go card rendered blank.** In the enterprise UI the card
+  appeared with an empty *"Recommendation:"* and no reasons — while the agent had
+  sent both.
+
+  `HumanInTheLoop.tsx` read the LangGraph interrupt as
+  `event.value as { tool, recommendation, reasons }`. That is a **compile-time
+  cast over a runtime string**: `ag-ui-langgraph` emits the interrupt as a CUSTOM
+  `on_interrupt` event whose `value` is **JSON-encoded as a string** (the decoded
+  object sits under `rawEvent.value`). Every field read came back `undefined`, so
+  the card rendered with nothing in it. The `v.tool` guard also read `undefined`,
+  which is why the card still appeared instead of being filtered out — the bug hid
+  itself.
+
+  The value is now parsed (objects still accepted, malformed JSON degrades to an
+  empty card rather than throwing).
+
+  Captured from a live local run — the payload was never the problem:
+
+  ```
+  "value":"{\"tool\": \"request_go_nogo\", \"recommendation\": \"no-go\",
+            \"reasons\": [\"Test coverage: 78 percent, target is 80 percent\", ...]}"
+  ```
+
+  **Why no test caught it:** `scripts/smoke_test.py` decodes the same string
+  (`if isinstance(raw, str): json.loads(raw)`) and asserts on the decoded value, so
+  it passed while the UI was blank. The Python client was defensive and the
+  TypeScript client was not — the same shape as the port bug, where the test
+  covered exactly the paths that worked.
+
+The deployable AgentCore packages are **byte-identical to 1.6.0** — git records all
+five as 100% renames, which the lock from 1.5.0 is what makes possible. This is a
+frontend fix; only `agui-frontend` changed content (97% similar).
+
 ## [1.6.0] — 2026-07-16
 
 ### Added
