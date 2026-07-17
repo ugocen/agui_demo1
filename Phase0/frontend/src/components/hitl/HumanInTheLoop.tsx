@@ -100,6 +100,34 @@ function ApprovalCard({
   );
 }
 
+/**
+ * Read a LangGraph interrupt's payload, which arrives JSON-ENCODED AS A STRING.
+ *
+ * `ag-ui-langgraph` emits the interrupt as a CUSTOM `on_interrupt` event whose
+ * `value` is a string, while the same payload sits decoded under `rawEvent.value`:
+ *
+ *   {"type":"CUSTOM","name":"on_interrupt",
+ *    "rawEvent":{"value":{"tool":"request_go_nogo","recommendation":"no-go",...}},
+ *    "value":"{\"tool\": \"request_go_nogo\", \"recommendation\": \"no-go\", ...}"}
+ *
+ * This used to be `event.value as {...}`, which is a compile-time cast over a
+ * runtime string: every field read came back `undefined`, so the card rendered
+ * with a blank recommendation and no reasons — while the agent had sent both.
+ * `scripts/smoke_test.py` decodes the same string and therefore stayed green.
+ *
+ * Objects are still accepted, so this keeps working if the event shape changes.
+ */
+function interruptValue<T extends object>(raw: unknown): Partial<T> {
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as Partial<T>;
+    } catch {
+      return {};
+    }
+  }
+  return (raw ?? {}) as Partial<T>;
+}
+
 // 2) request_go_nogo (Release Readiness) → { decision: "go"|"no-go", note? }
 // Release go/no-go arrives as a LangGraph interrupt() (not a client-proxy tool),
 // so it has no `status`/`respond` — it uses `resolve` and tracks its own done state.
@@ -232,11 +260,11 @@ export function HumanInTheLoop({ agentId }: { agentId: string }) {
   useInterrupt({
     agentId,
     render: ({ event, resolve }) => {
-      const v = (event?.value ?? {}) as {
+      const v = interruptValue<{
         tool?: string;
         recommendation?: string;
         reasons?: string[];
-      };
+      }>(event?.value);
       if (v.tool && v.tool !== "request_go_nogo") return <></>;
       return (
         <GoNoGoInterrupt

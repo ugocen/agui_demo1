@@ -1,5 +1,5 @@
-659c461fbe6cbb067bd119f1c020b0985188a08bf72332c064deb7750f6b06d6  ./a2ui-demo-strands-1.6.0.zip
-bc50495651cbfceaf4d30bdb40bdbcb5526316ac85dd8a7edb9ca55ff6a4417d  ./bug-report-strands-1.6.0.zip
-94a09164732df7c9026de78174aed91817aa1157cf5cb2f24b03a23628408ee9  ./press-release-strands-1.6.0.zip
-d2491cb8708013bffb2143e463453d8f20a52c5b2c8ccaaf384e8c5e9f902608  ./release-readiness-langgraph-1.6.0.zip
-b6028ec2abd84988e79a89b0f32685ae02dc98b8c6950607c97cd352f88da936  ./sdlc-planner-strands-1.6.0.zip
+659c461fbe6cbb067bd119f1c020b0985188a08bf72332c064deb7750f6b06d6  ./a2ui-demo-strands-1.7.0.zip
+bc50495651cbfceaf4d30bdb40bdbcb5526316ac85dd8a7edb9ca55ff6a4417d  ./bug-report-strands-1.7.0.zip
+94a09164732df7c9026de78174aed91817aa1157cf5cb2f24b03a23628408ee9  ./press-release-strands-1.7.0.zip
+d2491cb8708013bffb2143e463453d8f20a52c5b2c8ccaaf384e8c5e9f902608  ./release-readiness-langgraph-1.7.0.zip
+b6028ec2abd84988e79a89b0f32685ae02dc98b8c6950607c97cd352f88da936  ./sdlc-planner-strands-1.7.0.zip
