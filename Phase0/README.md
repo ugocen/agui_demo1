@@ -23,20 +23,38 @@ Phase0/
     └── smoke_test.py     # S1..S5 + auth checks, prints the G0 report
 ```
 
-## Generative UI — current state (doc-vs-code note)
+## Generative UI — two strategies, picked per agent
 
-The original plan (`resources/07`, `resources/13`) specified **six hand-authored
-cards** and per-`ui_mode` rendering. The implementation has since **pivoted to a
-fully-generic A2UI renderer**: the frontend mounts one rich A2UI catalog
-(`frontend/src/components/a2ui/richCatalog.tsx` — Chart / Mermaid / Markdown /
-Html on top of the basic A2UI components) for **every** agent, with no per-agent
-card components and no `ui_mode` special-casing (`useDefaultRenderTool` renders
-any tool call the catalog doesn't handle as a status line). The `a2ui-demo`
-agent is the canonical example; the card-style agents (planner, release,
-bug-report, press-release) still emit their tool calls, but the current frontend
-renders them generically. `ui_mode` is retained as a catalog/DB field for
-forward-compatibility only. Client-side **human-in-the-loop is not wired** in the
-current frontend (see the roadmap).
+An agent's generative UI is rendered one of two ways, chosen per agent by its
+catalog `ui_mode` (editable in `/admin`). The difference is **who decides the
+layout**:
+
+- **`static`** — the *frontend* does. Hand-authored cards render the agent's tool
+  calls: it calls `show_user_stories`, the frontend draws the story cards. Fixed,
+  typed, deterministic; the LLM only supplies the data.
+- **`a2ui`** — the *agent* does. It is given the A2UI component catalog and emits
+  a component tree, which the frontend renders as-is. Free composition; the same
+  question can look different twice. Newly discovered agents default to this.
+
+Both are **generic and keyed by tool name, never by agent id** — a card lives in
+`frontend/src/components/cards/cardCatalog.tsx` and an A2UI component in
+`frontend/src/components/a2ui/richCatalog.tsx`; adding either is a catalog entry,
+not per-agent React (invariant 5). Anything neither catalog handles falls to
+`useDefaultRenderTool`, which shows a status line so nothing silently disappears.
+
+The modes are **exclusive**: an agent told both "you have `show_user_stories`" and
+"you may compose A2UI" picks between them nondeterministically. `static` agents are
+therefore left out of the runtime's A2UI list in
+`frontend/src/app/api/copilotkit/[[...path]]/route.ts`, so their LLM is never given
+the `render_a2ui` tool at all — the client alone cannot enforce this.
+
+**Human-in-the-loop is wired** (`frontend/src/components/hitl/HumanInTheLoop.tsx`)
+and is mounted in **both** modes. Those tools are frontend-owned, the run *pauses*
+on them, and `bug-report` ships `tools=[]` and cannot function without them — they
+are a protocol contract, not a rendering style.
+
+`a2ui-demo` is the canonical `a2ui` agent; `planner` and `release` are the card
+agents; `bug-report` and `press-release` are driven entirely by HITL tools.
 
 ## Human prerequisites (doc 07 section 2)
 

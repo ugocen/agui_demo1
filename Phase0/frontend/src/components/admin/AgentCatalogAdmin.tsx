@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useAccessToken } from "@/components/AuthGate";
-import { agentColor } from "@/components/workspace/WorkspaceShell";
+import { agentColor, type UiMode } from "@/components/workspace/WorkspaceShell";
 import { BACKEND_URL } from "@/lib/config";
 
 type CatalogEntry = {
   agent_id: string;
   display_name: string;
   description: string;
+  ui_mode: UiMode;
   enabled: boolean;
   required_role: string;
   // AgentCore-sourced, read-only
@@ -23,15 +24,21 @@ type CatalogEntry = {
 
 type Editable = Pick<
   CatalogEntry,
-  "display_name" | "description" | "enabled" | "required_role"
+  "display_name" | "description" | "ui_mode" | "enabled" | "required_role"
 >;
 
 const EDITABLE_KEYS = [
   "display_name",
   "description",
+  "ui_mode",
   "enabled",
   "required_role",
 ] as const;
+
+const UI_MODE_HELP: Record<UiMode, string> = {
+  static: "Cards: the frontend owns the layout and renders this agent's tool calls.",
+  a2ui: "Generative: the agent is given the A2UI catalog and composes its own UI.",
+};
 
 export function AgentCatalogAdmin() {
   const token = useAccessToken();
@@ -151,8 +158,11 @@ export function AgentCatalogAdmin() {
       </div>
       <p className="hero-sub" style={{ marginBottom: 16 }}>
         Grey columns come from AgentCore and are read-only. Editable columns are
-        platform-owned. Agents are discovered from AgentCore and used as-is — no
-        per-agent configuration needed.
+        platform-owned. <strong>UI mode</strong> picks who decides an agent’s
+        layout: <strong>static</strong> renders its tool calls with the frontend’s
+        cards, <strong>a2ui</strong> hands it the A2UI catalog and lets it compose
+        its own. Newly discovered agents default to <strong>a2ui</strong>; a change
+        applies to the next message, no restart.
       </p>
 
       {syncMsg ? <p style={{ color: "var(--text-muted)" }}>{syncMsg}</p> : null}
@@ -173,6 +183,7 @@ export function AgentCatalogAdmin() {
                 <th style={cell}>Agent</th>
                 <th style={cell}>Display name</th>
                 <th style={cell}>Description</th>
+                <th style={cell}>UI mode</th>
                 <th style={cell}>Role</th>
                 <th style={cell}>On</th>
                 <th style={roCell}>Runtime (AgentCore)</th>
@@ -185,6 +196,7 @@ export function AgentCatalogAdmin() {
             <tbody>
               {entries.map((entry) => {
                 const draft = drafts[entry.agent_id] ?? {};
+                const uiMode = draft.ui_mode ?? entry.ui_mode;
                 const dirty = Object.keys(dirtyPatch(entry)).length > 0;
                 return (
                   <tr key={entry.agent_id}>
@@ -209,6 +221,19 @@ export function AgentCatalogAdmin() {
                         value={draft.description ?? entry.description}
                         onChange={(event) => setDraft(entry.agent_id, { description: event.target.value })}
                       />
+                    </td>
+                    <td style={cell}>
+                      <select
+                        style={input}
+                        value={uiMode}
+                        title={UI_MODE_HELP[uiMode]}
+                        onChange={(event) =>
+                          setDraft(entry.agent_id, { ui_mode: event.target.value as UiMode })
+                        }
+                      >
+                        <option value="static">static</option>
+                        <option value="a2ui">a2ui</option>
+                      </select>
                     </td>
                     <td style={cell}>
                       <input

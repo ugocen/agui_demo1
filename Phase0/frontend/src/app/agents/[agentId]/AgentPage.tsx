@@ -12,9 +12,10 @@ function AgentPageInner({ agentId }: { agentId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const catalog = useCatalog();
-  // Display name comes from the catalog (synced from AgentCore); fall back to the
-  // id until the catalog loads. No hardcoded per-agent names.
-  const agentName = catalog.find((agent) => agent.id === agentId)?.name ?? agentId;
+  // Display name and ui_mode both come from the catalog (synced from AgentCore);
+  // no hardcoded per-agent values. The header falls back to the id while it loads.
+  const agent = catalog.find((entry) => entry.id === agentId);
+  const agentName = agent?.name ?? agentId;
   const [fallbackThread] = useState(() => newThreadId());
   const threadId = searchParams.get("thread");
 
@@ -34,8 +35,20 @@ function AgentPageInner({ agentId }: { agentId: string }) {
         <span className="header-chip">agui</span>
         <span className="header-chip">AgentCore</span>
       </header>
-      {threadId ? (
-        <AgentChat agentId={agentId} agentName={agentName} threadId={threadId} />
+      {/*
+        Wait for the catalog entry before mounting the chat: ui_mode decides which
+        rendering strategy is wired, so mounting on a guess would start the wrong
+        one and then swap catalogs under a live CopilotKitProvider. The backend
+        also *is* the AG-UI proxy, so if its catalog is unreachable there is no
+        working chat to render anyway.
+      */}
+      {threadId && agent ? (
+        <AgentChat
+          agentId={agentId}
+          agentName={agentName}
+          threadId={threadId}
+          uiMode={agent.ui_mode ?? "a2ui"}
+        />
       ) : null}
     </WorkspaceShell>
   );
