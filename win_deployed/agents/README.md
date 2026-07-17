@@ -257,6 +257,37 @@ into the backend's environment.
 
 The agent then appears in the UI.
 
+### Testing the runtime you just uploaded
+
+An AGUI runtime cannot be tested with the console's plain "Test" panel the way a
+normal agent can. It does not take a prompt and return a JSON answer — it speaks
+the AG-UI protocol: `POST /invocations` receives a **RunAgentInput** object and
+streams back Server-Sent Events. The console shows raw bytes, so it works only if
+you hand-craft a valid RunAgentInput and read the SSE yourself.
+
+Three ways to test, cheapest first:
+
+1. **Straight at AgentCore, no backend** — the earliest check, right after upload:
+
+   ```bash
+   AWS_REGION=us-east-1 uv run scripts/invoke_agentcore.py a2ui-demo-strands
+   # or pass a full runtime ARN, and an optional prompt:
+   AWS_REGION=us-east-1 uv run scripts/invoke_agentcore.py <runtime-arn> "Say hi"
+   ```
+
+   It builds the RunAgentInput, SigV4-signs an `InvokeAgentRuntime` call, and
+   renders the event stream. Exit 0 means the runtime booted and streamed AG-UI
+   events. A `RUN_ERROR` naming an *initialization* timeout means the container
+   never went healthy — wrong port, or a missing `BEDROCK_*` variable; the real
+   traceback is in the runtime's `[runtime-logs]` CloudWatch stream. Needs only
+   `AWS_REGION` and AWS credentials.
+
+2. **Through the whole stack** — once the backend is running, `smoke_test.py`'s S0
+   probes every registered agent the same way the browser will reach it (catalog →
+   proxy → SigV4). See the backend README.
+
+3. **Interactively** — open the frontend and use the agent from the chat UI.
+
 ---
 
 ## Run an agent locally (optional)

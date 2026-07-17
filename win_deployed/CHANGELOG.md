@@ -14,6 +14,41 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.6.0] — 2026-07-16
+
+### Added
+
+- **`agents/scripts/invoke_agentcore.py`** — test a deployed AGUI runtime straight
+  against AgentCore, with no backend running. It answers the question you have
+  right after uploading a zip: *did that upload work?* — before you've stood up the
+  backend, the DB or the frontend.
+
+  An AGUI runtime can't be checked with the console's plain "Test" panel the way a
+  normal agent can. It doesn't take a prompt and return JSON; it speaks the AG-UI
+  protocol — `POST /invocations` takes a **RunAgentInput** object and streams back
+  Server-Sent Events. The console shows raw bytes. This script builds the
+  RunAgentInput, SigV4-signs an `InvokeAgentRuntime` call, and renders the event
+  stream (`RUN_STARTED`, text deltas, `TOOL_CALL_START`, `RUN_ERROR`,
+  `RUN_FINISHED`). Exit 0 = booted and streamed; a `RUN_ERROR` naming an
+  initialization timeout points at wrong port / missing `BEDROCK_*` and the
+  `[runtime-logs]` stream. Needs only `AWS_REGION` and AWS credentials.
+
+  This fills the gap below `smoke_test.py`: S0 tests the whole stack through the
+  backend (catalog → proxy → SigV4) and needs it running; this tests one runtime
+  directly. The agents README now documents all three tiers — direct probe, S0,
+  interactive UI.
+
+  The SSE renderer was verified against a real agent booted locally (RUN_STARTED →
+  RUN_FINISHED over a live `/invocations` stream) and its error/tool-call branches
+  against synthetic streams. The `InvokeAgentRuntime` + SigV4 wrapper itself could
+  not be exercised from here — it needs a real AgentCore runtime, which lives
+  inside the enterprise.
+
+The deployable AgentCore packages are **byte-identical to 1.5.0** (proven by
+hash — the lock makes this checkable now): the new script is tooling under
+`scripts/`, not agent code, so nothing that gets uploaded changed. Only the
+filenames moved 1.5.0 → 1.6.0.
+
 ## [1.5.0] — 2026-07-16
 
 ### Added — the delivered bytes are now actually reproducible
