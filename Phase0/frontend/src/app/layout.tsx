@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Phase 0 Agent Platform",
-  description: "AG-UI on AgentCore validation spike",
+  title: "Generative UI demo for AI SDLC",
+  description:
+    "A playground for building and testing agents that render Generative UI with CopilotKit, AG-UI, and A2UI, part of the AI SDLC Orchestration platform.",
 };
 
 export const viewport: Viewport = {
