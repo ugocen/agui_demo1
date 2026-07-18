@@ -14,6 +14,51 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.8.0] — 2026-07-18
+
+Adopts four changes that had merged to `main` after 1.7.0 was cut but were never
+packaged (`check_sync.sh` reported drift in all three trees). Everything below was
+already reviewed and merged upstream; this release simply carries it into the
+enterprise payload.
+
+### Added
+
+- **Live agent health banner.** Opening an agent now shows, before you type,
+  whether its runtime is actually up — non-blocking, the chat still mounts
+  immediately. Backed by a new backend endpoint `GET /api/agui/{id}/health` that
+  opens a real AG-UI run through the existing SigV4 proxy path and stops at the
+  first event: `RUN_STARTED` fires before the model is called, so reaching it
+  proves *catalog → proxy → SigV4 → AgentCore → container booted → agent started*
+  at near-zero token cost. It returns JSON and reads only the first event, so it
+  is **not** the SSE proxy path and does not touch the "never buffer the proxy"
+  invariant. The check is deliberately a real invoke, not the control plane's
+  `READY` flag — AgentCore reports a runtime READY even when its container cannot
+  boot (the port bug of 2026-07-15 sat behind a READY runtime).
+- **Static cards render path (`ui_mode`).** `frontend/src/components/cards/` is
+  new to the package: an agent's `ui_mode` now really picks its rendering strategy
+  — hand-authored cards keyed by tool name (`static`) or the A2UI component tree
+  (`a2ui`) — chosen server-side in `api/copilotkit/route.ts`. No per-agent code.
+- **Agent intake gate.** All five agents now introduce themselves and ask for the
+  required input before running the main flow, instead of acting on an empty or
+  underspecified prompt (`agent.py` ×4, `graph.py`).
+
+### Changed
+
+- **Rebrand.** Every user-visible "Phase 0" / "P0" string is gone; the app is now
+  **Generative UI demo for AI SDLC**, with a welcome message on the landing page.
+  UI strings only — internal identifiers (the `phase0-*` localStorage key / event /
+  fallback session id) are unchanged, so saved chat history is preserved.
+- **`agents/scripts/deploy_agent.py`** now resolves the target runtime from the DB
+  catalog rather than the name convention, so a deploy lands on the runtime the
+  platform actually routes to.
+
+### Packaging
+
+- All five **deployable** AgentCore packages (`dist/agentcore/<agent>-1.8.0.zip`)
+  are rebuilt with genuinely new content — the intake gate changed every agent, so
+  these are not renames of 1.7.0. `requirements.txt`/`.lock` are unchanged, so only
+  agent code moved; the vendored dependency set is identical to 1.7.0.
+
 ## [1.7.0] — 2026-07-16
 
 ### Fixed
