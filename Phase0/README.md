@@ -65,7 +65,9 @@ agents; `bug-report` and `press-release` are driven entirely by HITL tools.
 - `AUTH_MODE=iam` (Stage A fallback) or `AUTH_MODE=entra` plus the `ENTRA_*` values
 - `LOG_LEVEL` (default `DEBUG`), `LOG_FORMAT` (`console` default, or `json` for CloudWatch)
 - `DATABASE_URL` (optional; defaults to local SQLite — see "Database")
-- the deployed `*_RUNTIME_ARN` values the proxy routes to
+
+No runtime ARNs: the proxy routes on the DB catalog (synced from AgentCore),
+never on env values (invariant 2).
 
 **Agent deployment is out-of-band** (external CI/CD or manual) and is *not* driven
 by the backend. Its config lives with the deploy pipeline, not in the backend `.env`:

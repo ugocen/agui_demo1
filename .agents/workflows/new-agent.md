@@ -41,9 +41,12 @@ cd Phase0
 uv run scripts/deploy_agent.py <name> build/<name>.zip
 ```
 - If deploying a brand-new agent name not yet in `deploy_agent.py`'s
-  `ARN_ENV_KEYS`, add an entry there (it is only used to write the resulting
-  ARN back to `Phase0/.env` for local reference — the catalog itself is
-  populated by syncing AgentCore, not from this map).
+  `CATALOG_AGENT_IDS`, add an entry there (agent dir → catalog `agent_id`; for
+  a new agent the auto-registered id equals the dir name). The map is the
+  deploy allowlist and how the script finds the catalog entry — and thus the
+  runtime the proxy routes on — that it must update. A first deploy falls back
+  to creating a name-derived runtime, which the catalog auto-registers on the
+  next AgentCore sync.
 
 ### 4. Verify it appears in the catalog
 - Restart the backend or use "Sync from AgentCore" on `/admin`. A new AG-UI
