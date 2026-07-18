@@ -8,12 +8,23 @@ import { useAccessToken, useMe } from "@/components/AuthGate";
 import { BACKEND_URL } from "@/lib/config";
 import { listThreads, ThreadRecord } from "@/lib/threads";
 
+/**
+ * Which rendering strategy an agent's generative UI uses. Platform-owned, set per
+ * agent in /admin, and the choice is between who decides the layout:
+ *   "static" — the FRONTEND does. Hand-authored cards keyed by tool name
+ *              (components/cards/cardCatalog.tsx) render the agent's tool calls.
+ *   "a2ui"   — the AGENT does. It is given the A2UI component catalog and emits a
+ *              component tree (components/a2ui/richCatalog.tsx renders it).
+ */
+export type UiMode = "static" | "a2ui";
+
 export type CatalogAgent = {
   id: string;
   name: string;
   description: string;
   capability: string;
   runtime_arn?: string;
+  ui_mode?: UiMode;
 };
 
 // A stable, distinct color per agent derived from its id — no hardcoded
@@ -94,8 +105,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     <div className="workspace">
       <aside className="sidebar">
         <Link href="/" className="sidebar-brand">
-          <span className="brand-mark">P0</span>
-          <span>Agent Platform</span>
+          <span className="brand-mark">GU</span>
+          <span>Generative UI</span>
         </Link>
 
         <Link href="/" className="new-chat-btn">
