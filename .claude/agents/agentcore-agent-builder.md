@@ -44,8 +44,11 @@ Steps:
    ```
    Requires `AWS_REGION`, `DEPLOY_BUCKET`, `EXECUTION_ROLE_ARN`,
    `BEDROCK_MODEL_ID` set in `Phase0/.env`. If `<name>` is not yet in
-   `deploy_agent.py`'s `ARN_ENV_KEYS`, add an entry (only used to write the
-   resulting ARN back into `.env` for local reference).
+   `deploy_agent.py`'s `CATALOG_AGENT_IDS`, add an entry (agent dir → catalog
+   `agent_id`; for a new agent that is the dir name itself). The deploy
+   resolves its target runtime from the platform catalog DB — the ARN the
+   proxy routes on — and falls back to the name-derived runtime only when no
+   catalog entry exists.
 4. **Confirm catalog pickup** — the agent should appear in
    `GET /api/agentcore/runtimes` after a backend restart or "Sync from
    AgentCore" on `/admin`, auto-registered with `ui_mode='a2ui'`. No manual
