@@ -55,6 +55,18 @@ enterprise payload.
   `smoke_test.py`, which asserts on the decoded stream rather than on what the
   browser renders.
 
+- **Repackaged: `deploy_agent.py` carried unresolved merge markers and dead code.**
+  The "Resolve conflicts with main" step that landed the fix above (PR #30) stitched
+  the `--runtime` flag below onto the catalog-first resolver, but left the loose
+  `win_deployed/agents/scripts/deploy_agent.py` copy with raw Git conflict markers
+  (`<<<`/`===`/`>>>`) — invalid Python. Only the loose copy was corrupt; the shipped
+  `agui-agents-1.8.0.zip` and `MANIFEST.sha256` already carried the correct file, so
+  the delivery was never broken, but `check_sync.sh` reported drift. The markers are
+  gone and the merge residue in the source is cleaned up: the `else: pass` no-op in
+  `main()` and the now-unreachable `if not target:` branch in `resolve_target()`.
+  Deploy behaviour is unchanged — catalog-first by default, `--runtime` as the
+  override — so this is a repackage, not a new release.
+
 ### Added
 
 - **`deploy_agent.py --runtime=<name-or-arn>`** — update an existing runtime whose
