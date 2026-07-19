@@ -209,10 +209,14 @@ Mapping to today:
   required_role) joined to live AgentCore runtimes by ARN. AgentCore-sourced fields
   (ARN, protocol, status, version) are read-only. The **Admin screen** (`/admin`,
   gated to the `admin` role) edits it; "Sync from AgentCore" auto-registers newly
-  discovered **AG-UI** agents with `ui_mode='a2ui'` by default. Note: `ui_mode`
-  is retained for forward-compatibility, but the current frontend renders
-  **every** agent generatively through the A2UI catalog and does not branch on
-  it — there are no per-`ui_mode` code paths left.
+  discovered **AG-UI** agents with `ui_mode='a2ui'` by default. `ui_mode` selects
+  which of the two rendering strategies an agent uses — `static` (frontend-owned
+  cards render its tool calls) or `a2ui` (the agent is handed the A2UI catalog and
+  composes its own UI). It is read in two places: the CopilotKit route
+  (`api/copilotkit/[[...path]]/route.ts`) lists only `a2ui` agents for the runtime's
+  A2UIMiddleware, so a `static` agent's LLM never receives the `render_a2ui` tool;
+  and `AgentChat.tsx` mounts the matching catalog. Both catalogs are keyed by tool
+  name, so neither mode is per-agent code.
 - `audit_log` is **implemented** (not in the doc-03 sketch): every admin catalog
   edit and sync is recorded with the acting Entra identity (oid/email), action,
   target and change detail. Operational/request logs are **not** here — those go

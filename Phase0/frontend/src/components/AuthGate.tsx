@@ -89,9 +89,9 @@ function EntraGate({ children }: { children: React.ReactNode }) {
       <div className="signin-screen">
         <div className="signin-card">
           <span className="brand-mark" style={{ width: 44, height: 44, fontSize: 18 }}>
-            P0
+            GU
           </span>
-          <h1>Phase 0 Agent Platform</h1>
+          <h1>Generative UI demo for AI SDLC</h1>
           <p>Sign in with your Microsoft Entra ID account to continue.</p>
           <button
             className="signin-btn"

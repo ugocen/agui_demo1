@@ -232,7 +232,7 @@ as a signal, and make sure `VERSION` and `CHANGELOG.md` were bumped to match.
 | Excluded | Why |
 | --- | --- |
 | `.claude/`, `.agents/`, `CLAUDE.md`, `AGENTS.md` | Our dev/agent tooling. Requirement 6: nothing about our dev environment ships. Enforced in `_payload.sh` (`EXCLUDES`) and again in `make_zips.sh`. |
-| `Phase0/README.md`, `ARCHITECTURE.md`, `SUNUM-AGUI-A2UI.md`, `VERSIONS.md`, `docs/`, audit and plan docs | Internal docs; `SUNUM-AGUI-A2UI.md` is also Turkish. Requirement 2: no Turkish text ships. The payload READMEs are written fresh in English. |
+| `Phase0/README.md`, `ARCHITECTURE.md`, `PRESENTATION-AGUI-A2UI.md`, `VERSIONS.md`, `docs/`, audit and plan docs | Internal docs. The payload READMEs are written fresh in English. |
 | `.env` and any real secret | Only `*.example` templates with blanks ship. Never put a real key in this tree. |
 | `node_modules/`, `.venv/`, `.next/`, `build/`, `*.zip`, `*.pyc`, `*.tsbuildinfo` | Build artifacts — the operator installs from `package-lock.json` / `requirements.txt`. Also keeps the zips small. |
 | `*.db`, `*.sqlite3` | Local dev databases. The backend creates its own SQLite file on first run. |
@@ -270,7 +270,7 @@ as a signal, and make sure `VERSION` and `CHANGELOG.md` were bumped to match.
 | # | Stakeholder requirement | How this package satisfies it | Honest status |
 | --- | --- | --- | --- |
 | 1 | Only what is needed ships: a backend, a frontend, the agents | Exactly three payload trees, 78 files (66 code synced from `Phase0/` + 12 hand-written enterprise files), defined once in `scripts/_payload.sh`. Nothing else is copied. | **Met** |
-| 2 | No Turkish text anywhere; everything in English | Turkish/internal docs (`SUNUM-AGUI-A2UI.md`, `docs/`) are never copied; all shipped READMEs and templates are written fresh in English. | **Met** — but it is a review discipline, not a mechanical check. There is no automated Turkish-text linter; re-read new docs before shipping. |
+| 2 | No Turkish text anywhere; everything in English | Internal docs (`PRESENTATION-AGUI-A2UI.md`, `docs/`) are never copied; all shipped READMEs and templates are written fresh in English. | **Met** — but it is a review discipline, not a mechanical check. There is no automated Turkish-text linter; re-read new docs before shipping. |
 | 3 | Agents ready for the GenAI marketplace API gateway, under one `agents/` folder; AgentCore deploy explained | All five agents in one `agents/` folder with `scripts/build_zip.sh` + `scripts/deploy_agent.py`. The agents are **gateway-only** — no Amazon Bedrock code path exists in this build, and `BEDROCK_ENDPOINT_URL` + `BEDROCK_API_KEY` + `BEDROCK_MODEL_ID` are all mandatory (identical `model_factory.py` in all five). `agents/README.md` documents the deploy process end to end. | **Met** — caveat: the gateway itself has not been exercised from here; `BEDROCK_API_KEY` is blank in the template and the operator fills it. If the gateway does not proxy `converse-stream`, set `BEDROCK_STREAMING=false`. |
 | 4 | No git on the enterprise side — zip delivery, separate folders | `make_zips.sh` produces three independent zips; no git metadata, no cross-folder references. | **Met** |
 | 5 | `backend/` and `frontend/` each get their own `.gitignore` and `README.md`, for Windows 11 + WSL2 | Present in both (plus `agents/`), hand-written and owned by `win_deployed/`, protected from the sync. `.gitattributes` added on top for LF enforcement. | **Met** |

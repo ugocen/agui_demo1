@@ -1,8 +1,11 @@
 """Release readiness graph.
 
-Linear three-node StateGraph: collect_checks -> assess_risks -> recommend.
-Each node emits its card tool call and the shared progress state through
-AG-UI custom events, the final node pauses on a LangGraph interrupt for the
+StateGraph with a conditional entry (intake gate): when no release version
+appears in any human turn, START routes to a static welcome node that
+introduces the agent and suggests prompts, then ends. Otherwise it enters the
+linear pipeline collect_checks -> assess_risks -> recommend. Each pipeline
+node emits its card tool call and the shared progress state through AG-UI
+custom events, the final node pauses on a LangGraph interrupt for the
 go/no-go decision (HITL) and then streams an LLM summary.
 """
 
@@ -59,6 +62,59 @@ def _extract_version(messages: list) -> str:
             if match:
                 return match.group(1)
     return "unspecified"
+
+
+WELCOME_MARKER = "I'm the Release Readiness assistant"
+
+WELCOME_MESSAGE = (
+    f"Hi — {WELCOME_MARKER}. Give me a version number and I run its pre-release "
+    "assessment: a release checklist, a risk matrix, and a go/no-go "
+    "recommendation that you approve or reject.\n\n"
+    "To start, I just need the version to assess. Try one of these:\n\n"
+    "- Assess release readiness for version 1.4.0\n"
+    "- Is version 2.0.1 ready to ship?\n"
+    "- Run a release readiness check for 3.2.0\n"
+)
+
+WELCOME_REMINDER = (
+    "I still need a version number to assess — for example: "
+    '"Assess release readiness for version 1.4.0".'
+)
+
+
+def route_entry(state: ReleaseState) -> str:
+    """Intake gate: no version in any human turn -> welcome and stop.
+
+    _extract_version scans every HumanMessage (and only HumanMessages), so a
+    version given in ANY earlier turn routes straight into the pipeline, and
+    the example versions inside the welcome text can never satisfy the gate.
+    """
+    if _extract_version(state.get("messages", [])) == "unspecified":
+        return "welcome"
+    return "collect_checks"
+
+
+async def welcome(state: ReleaseState) -> dict:
+    """Static intro turn: no LLM call, no tools, no progress or cards.
+
+    manually_emit_message streams the text as TEXT_MESSAGE events; the
+    returned AIMessage carries the same id so the closing MESSAGES_SNAPSHOT
+    reconciles with the streamed message instead of duplicating it (same
+    pattern as _emit_card). The marker scan keeps a repeated greeting from
+    replaying the full introduction.
+    """
+    already_welcomed = any(
+        isinstance(message, AIMessage)
+        and isinstance(message.content, str)
+        and WELCOME_MARKER in message.content
+        for message in state.get("messages", [])
+    )
+    text = WELCOME_REMINDER if already_welcomed else WELCOME_MESSAGE
+    message_id = f"msg_{uuid.uuid4().hex}"
+    await adispatch_custom_event(
+        "manually_emit_message", {"message_id": message_id, "message": text}
+    )
+    return {"messages": [AIMessage(content=text, id=message_id)]}
 
 
 async def _emit_progress(state: ReleaseState, step: int, label: str) -> dict:
@@ -200,10 +256,14 @@ async def recommend(state: ReleaseState) -> dict:
 
 def build_graph():
     builder = StateGraph(ReleaseState)
+    builder.add_node("welcome", welcome)
     builder.add_node("collect_checks", collect_checks)
     builder.add_node("assess_risks", assess_risks)
     builder.add_node("recommend", recommend)
-    builder.add_edge(START, "collect_checks")
+    builder.add_conditional_edges(
+        START, route_entry, {"welcome": "welcome", "collect_checks": "collect_checks"}
+    )
+    builder.add_edge("welcome", END)
     builder.add_edge("collect_checks", "assess_risks")
     builder.add_edge("assess_risks", "recommend")
     builder.add_edge("recommend", END)

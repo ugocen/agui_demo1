@@ -18,12 +18,19 @@ uv run scripts/deploy_agent.py <agent-name> <zip-path>
 - Reads `AWS_REGION`, `DEPLOY_BUCKET`, `EXECUTION_ROLE_ARN`, `BEDROCK_MODEL_ID`
   from `Phase0/.env` (never from `backend/.env` — the running backend never
   reads deploy config).
+- Resolves the target runtime **catalog-first**: the platform DB
+  (`backend/phase0.db`, table `agent_catalog`; override the path with
+  `CATALOG_DB_PATH` in `Phase0/.env`) holds the runtime ARN the backend proxy
+  routes on, so that runtime is the one updated. The name-derived runtime
+  (`-` → `_`) is only the find-or-create fallback when no catalog entry exists
+  — e.g. the first deploy of a brand-new agent. A loud warning is printed when
+  the catalog target and the name-derived runtime disagree (several live
+  runtimes are hand-created, e.g. `Planner-…` vs `sdlc_planner_strands`).
 - Uploads the zip to
-  `s3://$DEPLOY_BUCKET/<agent-name>/deployment_package.zip`, creates or
-  updates the AgentCore runtime with protocol `AGUI`, waits for `READY`, and
-  writes the resulting runtime ARN back into `Phase0/.env` (for local
-  reference only — the backend catalog gets the ARN by syncing AgentCore, not
-  from this file).
+  `s3://$DEPLOY_BUCKET/<agent-name>/deployment_package.zip`, updates the
+  AgentCore runtime with protocol `AGUI`, and waits for `READY`. Runtime ARNs
+  are never written back into `.env` — the catalog is their only home
+  (invariant 2).
 
 ### 3. Verify the catalog picks it up
 - Restart the backend (or hit "Sync from AgentCore" on `/admin`) — the new or
