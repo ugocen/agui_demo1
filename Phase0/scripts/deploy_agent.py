@@ -138,22 +138,16 @@ def runtime_name_for(agent_name: str) -> str:
     return agent_name.replace("-", "_")
 
 
-def resolve_target(control, agent_name: str, target: str):
-    """Find the runtime to update: an explicit --runtime, else the derived name.
+def resolve_target(control, target: str):
+    """Find the runtime an explicit --runtime flag names, by runtime name or ARN.
 
-    Without --runtime this only ever finds runtimes THIS script created, because it
-    guesses the name from the agent directory. A runtime created by hand in the
-    AgentCore console carries whatever name the operator typed, so the guess misses
-    it and the script silently CREATES A SECOND runtime instead of updating the
-    first — leaving the original (possibly broken) one live and the catalog holding
-    both. That is not hypothetical: four of the five runtimes in the personal
-    account are named Planner / Release_Readiness / Press_Release / A2UI_demo.
-
-    --runtime accepts either the runtime name or a full ARN.
+    --runtime is the escape hatch for updating a runtime whose name this script's
+    naming convention could not derive — e.g. one created by hand in the AgentCore
+    console under an arbitrary name (four of the five runtimes in the personal
+    account are exactly this: Planner / Release_Readiness / Press_Release /
+    A2UI_demo). The default path is the catalog-first resolution in main(); this
+    only runs when --runtime is given, and exits if the name/ARN is not found.
     """
-    if not target:
-        return find_existing_runtime(control, runtime_name_for(agent_name))
-
     wanted_arn = target if target.startswith("arn:") else ""
     wanted_name = "" if wanted_arn else target
     token = None
@@ -342,15 +336,14 @@ def main() -> None:
     print(f"Uploading {zip_path.name} to s3://{bucket}/{object_key}")
     s3.upload_file(str(zip_path), bucket, object_key)
 
-    # Resolve the runtime first: an update must merge onto its existing env vars.
+    # `existing` is already resolved above — catalog first, else the name-derived
+    # runtime. An explicit --runtime overrides that with a runtime the naming
+    # convention could not reach; resolve_target() exits if the name/ARN is
+    # unknown, so a returned value is always a real runtime. Either way, an update
+    # must merge onto the target runtime's existing env vars.
     if target:
-        existing = resolve_target(control, agent_name, target)
-        if existing:
-            runtime_name = existing["agentRuntimeName"]
-            print(f"Updating explicitly targeted runtime: {runtime_name}")
-    else:
-        # existing is already resolved via catalog or derived_name above
-        pass
+        existing = resolve_target(control, target)
+        print(f"Updating explicitly targeted runtime: {existing['agentRuntimeName']}")
     env_vars = build_env_vars(env, control, existing["agentRuntimeId"] if existing else None)
     if "BEDROCK_ENDPOINT_URL" in env_vars and "BEDROCK_API_KEY" in env_vars:
         print("Gateway config present: BEDROCK_ENDPOINT_URL + BEDROCK_API_KEY set on the runtime")
