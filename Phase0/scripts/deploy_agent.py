@@ -7,15 +7,35 @@
 Usage: uv run scripts/deploy_agent.py <agent-name> <zip-path>
 
 Uploads the zip to s3://$DEPLOY_BUCKET/<agent-name>/deployment_package.zip,
-creates or updates the agent runtime with the AGUI protocol, waits for READY,
-prints the runtime ARN and writes it back into .env.
+updates the agent runtime, waits for READY and prints the runtime ARN.
+
+The deploy target is resolved CATALOG-FIRST. The backend proxy routes on the
+platform DB catalog entry's runtime_arn (backend/phase0.db, table
+agent_catalog) — not on any naming convention — so that ARN is the runtime the
+live app actually serves. Several live runtimes were hand-created under names
+the convention cannot derive (e.g. Planner-QIXryP8Qvh for
+sdlc-planner-strands); deploying by convention updated or created a same-named
+twin runtime the app never routes to, leaving the app on stale code. Per agent
+this script therefore:
+
+1. resolves the catalog entry (CATALOG_AGENT_IDS map first, then a row whose
+   runtime_name matches the name-derived runtime) and updates THAT runtime,
+   warning loudly when the convention would have picked a different one;
+2. falls back to the old find-or-create by derived name ("-" -> "_") only when
+   no catalog entry is reachable — the first deploy of a brand-new agent. The
+   catalog auto-registers the new runtime on its next AgentCore sync.
 
 Configuration is read from the .env file in this script's parent directory
-(the repo root in the monorepo layout; the agents/ folder when this script ships
-alongside the agents). Creating the runtime by hand in the AgentCore console,
-with the same settings, produces an identical runtime.
+(the repo root in the monorepo layout; the agents/ folder when this script
+ships alongside the agents). The catalog DB is expected at backend/phase0.db
+next to it; set CATALOG_DB_PATH in that .env when the backend's SQLite file
+lives elsewhere. A non-SQLite catalog (Postgres DATABASE_URL) cannot be read
+here — the name-derived fallback then applies, so verify the catalog ARN after
+deploying. Runtime ARNs are never written back to .env: the catalog is their
+only home (AGENTS.md invariant 2).
 """
 
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -25,13 +45,19 @@ from botocore.exceptions import ClientError
 
 PHASE0_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = PHASE0_DIR / ".env"
+DEFAULT_CATALOG_DB = PHASE0_DIR / "backend" / "phase0.db"
 
-ARN_ENV_KEYS = {
-    "sdlc-planner-strands": "PLANNER_RUNTIME_ARN",
-    "release-readiness-langgraph": "RELEASE_RUNTIME_ARN",
-    "bug-report-strands": "BUGREPORT_RUNTIME_ARN",
-    "a2ui-demo-strands": "A2UIDEMO_RUNTIME_ARN",
-    "press-release-strands": "PRESSRELEASE_RUNTIME_ARN",
+# Agent directory -> platform catalog agent_id (agent_catalog.agent_id); also
+# the allowlist of deployable agent names. The five original ids were picked by
+# hand before the runtime naming convention existed, so they cannot be derived.
+# A brand-new agent's auto-registered id is the slug of its runtime name, which
+# equals the directory name — add it here as itself.
+CATALOG_AGENT_IDS = {
+    "sdlc-planner-strands": "planner",
+    "release-readiness-langgraph": "release",
+    "bug-report-strands": "bugreport",
+    "a2ui-demo-strands": "a2uidemo",
+    "press-release-strands": "pressrelease",
 }
 
 READY_TIMEOUT_SECONDS = 300
@@ -84,19 +110,6 @@ def load_env() -> dict:
         key, _, value = line.partition("=")
         values[key.strip()] = value.strip()
     return values
-
-
-def save_env_value(key: str, value: str) -> None:
-    lines = ENV_PATH.read_text().splitlines()
-    replaced = False
-    for index, line in enumerate(lines):
-        if line.split("=", 1)[0].strip() == key:
-            lines[index] = f"{key}={value}"
-            replaced = True
-            break
-    if not replaced:
-        lines.append(f"{key}={value}")
-    ENV_PATH.write_text("\n".join(lines) + "\n")
 
 
 def require(env: dict, key: str) -> str:
@@ -174,6 +187,87 @@ def find_existing_runtime(control, runtime_name: str):
             return None
 
 
+def resolve_catalog_target(env: dict, agent_name: str, derived_name: str) -> dict | None:
+    """Look up the deploy target in the platform catalog DB — the same table the
+    backend proxy routes on. Returns None (after printing why) when no entry is
+    reachable, which sends the caller down the name-derived fallback.
+
+    Read-only, at deploy time only; no ARN ends up in env or config, so
+    AGENTS.md invariant 2 stands. Matches the explicit CATALOG_AGENT_IDS map
+    first, then a row whose runtime_name equals the name-derived runtime (an
+    agent that only ever existed by convention). Also picks up a duplicate row
+    pointing at the name-derived runtime so a stray auto-registration is called
+    out instead of silently coexisting with the real entry.
+    """
+    configured = env.get("CATALOG_DB_PATH", "").strip()
+    db_path = Path(configured).expanduser() if configured else DEFAULT_CATALOG_DB
+    if not db_path.exists():
+        print(f"Catalog DB not found at {db_path} — using the name-derived runtime")
+        return None
+    query = "SELECT agent_id, runtime_name, runtime_arn FROM agent_catalog WHERE {} = ?"
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error as error:
+        print(f"WARN: cannot open catalog DB {db_path} ({error}) — using the name-derived runtime")
+        return None
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(query.format("agent_id"), (CATALOG_AGENT_IDS[agent_name],)).fetchone()
+        if row is None:
+            row = conn.execute(query.format("runtime_name"), (derived_name,)).fetchone()
+        if row is None:
+            print(f"No catalog entry for {agent_name} in {db_path} — using the name-derived runtime")
+            return None
+        duplicate = conn.execute(
+            "SELECT agent_id, runtime_arn FROM agent_catalog WHERE runtime_name = ? AND agent_id != ?",
+            (derived_name, row["agent_id"]),
+        ).fetchone()
+    except sqlite3.Error as error:
+        print(f"WARN: catalog DB query failed ({error}) — using the name-derived runtime")
+        return None
+    finally:
+        conn.close()
+    return {
+        "agent_id": row["agent_id"],
+        "runtime_name": row["runtime_name"],
+        "runtime_arn": row["runtime_arn"],
+        "duplicate": dict(duplicate) if duplicate else None,
+    }
+
+
+def warn_catalog_divergence(control, catalog: dict, derived_name: str) -> None:
+    """The failure mode this script guards against: the catalog routes the agent
+    to a runtime the naming convention cannot reach, so a name-derived deploy
+    would update (or create) a twin the app never serves. Make the divergence
+    impossible to miss, and point at any twin that already exists."""
+    bar = "!" * 78
+    lines = [
+        bar,
+        "!! WARNING: the name-derived runtime and the catalog target DISAGREE.",
+        f"!!   catalog '{catalog['agent_id']}' routes to : {catalog['runtime_arn']}",
+        f"!!   the naming convention would pick : {derived_name}",
+        "!! Deploying to the CATALOG runtime — the one the live app actually serves.",
+    ]
+    twin = find_existing_runtime(control, derived_name)
+    if twin and twin.get("agentRuntimeArn") != catalog["runtime_arn"]:
+        lines += [
+            f"!! A separate runtime named {derived_name} also exists:",
+            f"!!   {twin.get('agentRuntimeArn')}",
+            "!! The app does not route this agent there (a twin from an old name-derived",
+            "!! deploy). Until it is deleted, every catalog sync re-registers it as a",
+            "!! duplicate agent entry.",
+        ]
+    if catalog["duplicate"]:
+        dup = catalog["duplicate"]
+        lines += [
+            f"!! The catalog also holds a duplicate entry '{dup['agent_id']}' pointing at",
+            f"!!   {dup['runtime_arn']}",
+            "!! Disable or delete it on /admin — it is a stray auto-registration.",
+        ]
+    lines.append(bar)
+    print("\n".join(lines))
+
+
 def wait_until_ready(control, runtime_id: str) -> dict:
     deadline = time.time() + READY_TIMEOUT_SECONDS
     while time.time() < deadline:
@@ -199,8 +293,11 @@ def main() -> None:
             "             guess — e.g. one created by hand in the AgentCore console."
         )
     agent_name, zip_arg = args
-    if agent_name not in ARN_ENV_KEYS:
-        sys.exit(f"FAIL: unknown agent name, expected one of {sorted(ARN_ENV_KEYS)}")
+    if agent_name not in CATALOG_AGENT_IDS:
+        sys.exit(
+            f"FAIL: unknown agent name, expected one of {sorted(CATALOG_AGENT_IDS)} "
+            "(add a brand-new agent to CATALOG_AGENT_IDS first)"
+        )
     zip_path = Path(zip_arg).resolve()
     if not zip_path.exists():
         sys.exit(f"FAIL: zip not found: {zip_path}")
@@ -215,17 +312,45 @@ def main() -> None:
     s3 = session.client("s3")
     control = session.client("bedrock-agentcore-control")
 
+    # Resolve the deploy target BEFORE touching S3: the catalog (what the proxy
+    # routes on) wins; the naming convention is only the fallback for an agent
+    # the catalog does not know yet.
+    derived_name = runtime_name_for(agent_name)
+    catalog = resolve_catalog_target(env, agent_name, derived_name)
+    if catalog:
+        runtime_id = catalog["runtime_arn"].rsplit("/", 1)[-1]
+        print(f"Catalog: '{catalog['agent_id']}' routes to {catalog['runtime_arn']}")
+        catalog_runtime_name = catalog["runtime_name"] or runtime_id.rsplit("-", 1)[0]
+        if catalog_runtime_name != derived_name:
+            warn_catalog_divergence(control, catalog, derived_name)
+        try:
+            control.get_agent_runtime(agentRuntimeId=runtime_id)
+        except ClientError as error:
+            code = error.response.get("Error", {}).get("Code", "unknown")
+            sys.exit(
+                f"FAIL: the catalog routes '{catalog['agent_id']}' to {catalog['runtime_arn']} "
+                f"but that runtime cannot be fetched ({code}). Fix the catalog entry (re-sync "
+                "from AgentCore or edit it on /admin) and retry — deploying to a name-derived "
+                "runtime instead would ship code the app never serves."
+            )
+        existing = {"agentRuntimeId": runtime_id}
+    else:
+        existing = find_existing_runtime(control, derived_name)
+
     ensure_bucket(s3, bucket, region)
     object_key = f"{agent_name}/deployment_package.zip"
     print(f"Uploading {zip_path.name} to s3://{bucket}/{object_key}")
     s3.upload_file(str(zip_path), bucket, object_key)
 
     # Resolve the runtime first: an update must merge onto its existing env vars.
-    runtime_name = runtime_name_for(agent_name)
-    existing = resolve_target(control, agent_name, target)
-    if existing:
-        runtime_name = existing["agentRuntimeName"]
-        print(f"Updating existing runtime: {runtime_name}")
+    if target:
+        existing = resolve_target(control, agent_name, target)
+        if existing:
+            runtime_name = existing["agentRuntimeName"]
+            print(f"Updating explicitly targeted runtime: {runtime_name}")
+    else:
+        # existing is already resolved via catalog or derived_name above
+        pass
     env_vars = build_env_vars(env, control, existing["agentRuntimeId"] if existing else None)
     if "BEDROCK_ENDPOINT_URL" in env_vars and "BEDROCK_API_KEY" in env_vars:
         print("Gateway config present: BEDROCK_ENDPOINT_URL + BEDROCK_API_KEY set on the runtime")
@@ -256,18 +381,21 @@ def main() -> None:
 
     if existing:
         runtime_id = existing["agentRuntimeId"]
-        print(f"Updating existing runtime {runtime_name} ({runtime_id})")
+        print(f"Updating runtime {runtime_id}")
         control.update_agent_runtime(agentRuntimeId=runtime_id, **runtime_config)
     else:
-        print(f"Creating runtime {runtime_name}")
-        created = control.create_agent_runtime(agentRuntimeName=runtime_name, **runtime_config)
+        print(f"Creating runtime {derived_name} (name-derived — first deploy of a new agent)")
+        created = control.create_agent_runtime(agentRuntimeName=derived_name, **runtime_config)
         runtime_id = created["agentRuntimeId"]
 
     info = wait_until_ready(control, runtime_id)
     runtime_arn = info["agentRuntimeArn"]
-    env_key = ARN_ENV_KEYS[agent_name]
-    save_env_value(env_key, runtime_arn)
-    print(f"OK: runtime READY, {env_key}={runtime_arn} written to .env")
+    print(f"OK: runtime READY, {runtime_arn}")
+    if catalog:
+        print(f"    the catalog routes '{catalog['agent_id']}' here — the live app serves this build")
+    else:
+        print("    resolved by NAME, not via the catalog — after the next AgentCore sync,")
+        print(f"    verify on /admin that the catalog entry for {agent_name} routes to this ARN")
 
 
 if __name__ == "__main__":

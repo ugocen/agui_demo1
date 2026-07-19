@@ -12,6 +12,7 @@ no buffering.
 import json
 import os
 import urllib.parse
+import uuid
 
 import boto3
 import httpx
@@ -137,3 +138,82 @@ async def proxy_agui(
 
     media_type = upstream.headers.get("content-type", "text/event-stream")
     return StreamingResponse(pipe(), media_type=media_type)
+
+
+@router.get("/api/agui/{agent_id}/health")
+async def agui_health(
+    agent_id: str,
+    user: dict = Depends(require_platform_access),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Liveness probe for one agent — is its runtime actually up?
+
+    The control plane reports a runtime READY even when its container cannot
+    boot (the port bug of 2026-07-15 sat behind a READY runtime), so the only
+    truthful check is a real invoke. This opens an AG-UI run and stops at the
+    first event: RUN_STARTED is emitted before the model is called, so reaching
+    it proves the whole path (catalog -> proxy -> SigV4 -> AgentCore -> the
+    container booted -> the agent started) at near-zero token cost.
+
+    Unlike the proxy route, this returns JSON (not an SSE stream) and reads only
+    the first event, so it does not stream to the browser and does not violate
+    the "never buffer the proxy" invariant — it is a separate liveness endpoint.
+    """
+    agent = await get_agent(db, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"unknown agent {agent_id}")
+
+    runtime_arn = agent["runtime_arn"]
+    if not runtime_arn:
+        return {
+            "agent_id": agent_id,
+            "alive": False,
+            "detail": "no AgentCore runtime ARN in the catalog — re-sync the catalog",
+        }
+    region = os.environ.get("AWS_REGION", "")
+    if not region:
+        raise HTTPException(status_code=500, detail="AWS_REGION is not set")
+
+    payload = {
+        "threadId": f"health-{uuid.uuid4().hex}",
+        "runId": f"run-{uuid.uuid4().hex[:8]}",
+        "messages": [{"id": f"msg-{uuid.uuid4().hex[:8]}", "role": "user", "content": "ping"}],
+        "tools": [],
+        "context": [],
+        "state": {},
+        "forwardedProps": {},
+    }
+    body = json.dumps(payload).encode()
+    session_id = session_id_from_thread(body)
+    base_headers = {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        SESSION_HEADER: session_id,
+    }
+    url = invocation_url(runtime_arn, region)
+    headers = sigv4_headers(url, body, region, base_headers)
+
+    # AgentCore takes ~30s to give up on an unhealthy runtime; read generously so
+    # that verdict is captured rather than the request timing out first.
+    timeout = httpx.Timeout(connect=10, read=60, write=30, pool=10)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, content=body, headers=headers) as upstream:
+                if upstream.status_code != 200:
+                    detail = (await upstream.aread()).decode(errors="replace")
+                    return {"agent_id": agent_id, "alive": False, "detail": f"HTTP {upstream.status_code}: {detail[:200]}"}
+                async for line in upstream.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    try:
+                        event = json.loads(line[6:])
+                    except ValueError:
+                        continue
+                    etype = event.get("type")
+                    if etype == "RUN_STARTED":
+                        return {"agent_id": agent_id, "alive": True, "detail": "container booted, agent running"}
+                    if etype == "RUN_ERROR":
+                        return {"agent_id": agent_id, "alive": False, "detail": (event.get("message") or "RUN_ERROR")[:220]}
+                return {"agent_id": agent_id, "alive": False, "detail": "stream closed without RUN_STARTED"}
+    except httpx.HTTPError as error:
+        return {"agent_id": agent_id, "alive": False, "detail": f"{type(error).__name__}: {error}"}

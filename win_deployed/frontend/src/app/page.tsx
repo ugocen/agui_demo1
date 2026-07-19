@@ -137,9 +137,10 @@ function HomeInner() {
     <WorkspaceShell>
       <div className="home-main">
         <div className="home-container">
-          <div className="hero-title">Phase 0 Agent Platform</div>
+          <div className="hero-title">Generative UI demo for AI SDLC</div>
           <p className="hero-sub">
-            AG-UI agents on Amazon Bedrock AgentCore, rendered with CopilotKit.
+            A demo playground for building and testing agents that render Generative UI with
+            CopilotKit, AG-UI, and A2UI — part of the AI SDLC Orchestration platform initiative.
           </p>
           <DiscoveredAgents agents={agents} />
         </div>
