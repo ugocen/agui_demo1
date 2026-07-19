@@ -508,7 +508,7 @@ enterprise layout to behave correctly:
 
 - Our dev/agent tooling: `.claude/`, `.agents/`, `CLAUDE.md`, `AGENTS.md`.
 - Internal and non-English docs: `Phase0/README.md`, `ARCHITECTURE.md`,
-  `SUNUM-AGUI-A2UI.md`, `VERSIONS.md`, `docs/`, audit and plan documents.
+  `PRESENTATION-AGUI-A2UI.md`, `VERSIONS.md`, `docs/`, audit and plan documents.
 - Secrets: every real `.env`. Only `*.example` templates ship.
 - Build artifacts and local state: `node_modules/`, `.venv/`, `.next/`,
   `build/`, `*.zip`, `*.pyc`, `*.db`, `*.sqlite3`, `*.tsbuildinfo`.

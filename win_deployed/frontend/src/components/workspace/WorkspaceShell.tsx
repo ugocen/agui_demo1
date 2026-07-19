@@ -106,7 +106,10 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       <aside className="sidebar">
         <Link href="/" className="sidebar-brand">
           <span className="brand-mark">GU</span>
-          <span>Generative UI</span>
+          <span className="brand-lockup">
+            <span className="brand-title">AI SDLC</span>
+            <span className="brand-subtitle">Generative UI</span>
+          </span>
         </Link>
 
         <Link href="/" className="new-chat-btn">
