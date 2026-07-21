@@ -14,6 +14,52 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.9.0] — 2026-07-22
+
+Carries PR #41 into the enterprise payload.
+
+### Added
+
+- **The document canvas is back** — the side panel that shows a draft as the
+  document it will become, next to the editable fields in chat. Running the
+  press-release agent opened no canvas and showed no rendered release; the
+  bug-report agent had lost the same panel.
+
+  The two panels were deleted upstream in `f98cff8`, the commit that made the
+  frontend fully generic: they were mounted behind `agentId === "pressrelease"`
+  / `=== "bugreport"`, which is exactly the per-agent frontend code that commit
+  set out to remove. The cards returned later as a tool-name-keyed catalog; the
+  canvas never did. What stayed behind was the promise of one — the `.canvas*`
+  CSS, the agent's catalog description ("editable cards + a document canvas"),
+  and its system prompt.
+
+  It returns as `frontend/src/components/canvas/DocumentCanvas.tsx`, which
+  renders whatever field list it is handed and branches on no agent id. Every
+  `draft_*` form publishes into it, so press-release and bug-report both get a
+  document view and so does any draft tool added later. The layout is a
+  convention over the form's field order — `field[0]` is the title, a
+  single-line `field[1]` is the subtitle, the rest are labeled sections — which
+  reproduces both old layouts without hard-coding either. HTML / Markdown /
+  JSON tabs and Copy, as before.
+
+### Fixed
+
+- **An expired AWS session made every agent look broken with no way to tell.**
+  `sigv4_headers` let botocore's `LoginRefreshRequired` escape, so FastAPI
+  answered with its bare-text 500. That response is raised outside
+  `CORSMiddleware` and therefore reaches the browser without CORS headers, where
+  it reads as `TypeError: Failed to fetch` — so the health banner showed a
+  network error and the one action needed (`aws login`) was invisible. It is now
+  a 503 naming `aws login`, and `/health` reports it as the banner's verdict.
+
+  This matters more in the enterprise environment than here: the same code path
+  covers any credential failure against AgentCore, and "Failed to fetch" would
+  send an operator hunting for a network problem that does not exist.
+
+- **React logged "changing an uncontrolled input to be controlled" on every
+  draft.** `EditableForm`'s `values` is `{}` until the streamed args arrive, so
+  each field started with `value={undefined}`. Cosmetic — console noise only.
+
 ## [1.8.0] — 2026-07-18
 
 Adopts changes that had merged to `main` after 1.7.0 was cut but were never
