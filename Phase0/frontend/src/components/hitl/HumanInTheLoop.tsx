@@ -23,6 +23,8 @@ import { useHumanInTheLoop, useInterrupt } from "@copilotkit/react-core/v2";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod/v3";
 
+import { DocumentField, useDocumentCanvas } from "@/components/canvas/DocumentCanvas";
+
 type Respond = (value: unknown) => void;
 const isDone = (status: string) => status === "complete";
 
@@ -213,19 +215,22 @@ function ChoiceCard({
 // has already typed in.
 function EditableForm({
   title,
+  toolCallId,
   status,
   respond,
   args,
   fields,
 }: {
   title: string;
+  toolCallId: string;
   status: string;
   respond?: Respond;
   args: Record<string, unknown>;
-  fields: { key: string; label: string; multiline?: boolean }[];
+  fields: DocumentField[];
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const edited = useRef<Set<string>>(new Set());
+  const { publish } = useDocumentCanvas();
   // Depend on the serialized args: the object identity changes on every render,
   // so [args] would re-run this forever.
   const argsKey = JSON.stringify(args);
@@ -239,6 +244,21 @@ function EditableForm({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [argsKey]);
+
+  // Mirror the form into the document canvas (components/canvas/DocumentCanvas):
+  // the chat shows the draft as fields to edit, the side panel shows the same
+  // draft as the document it will become, live as the agent streams it and as the
+  // user types. Every draft_* tool gets this — nothing here is per-agent.
+  const valuesKey = JSON.stringify(values);
+  useEffect(() => {
+    // Don't open the panel on an all-empty first render; wait for real content.
+    if (!Object.values(values).some((value) => value.trim() !== "")) return;
+    publish({ id: toolCallId, title, fields, values });
+    // `fields` is a literal in the caller's render, so its identity changes every
+    // render while its content is fixed per tool — depending on it would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolCallId, title, valuesKey, publish]);
+
   const done = isDone(status);
   const set = (k: string, v: string) => {
     edited.current.add(k);
@@ -250,10 +270,14 @@ function EditableForm({
       {fields.map((f) => (
         <div key={f.key} style={{ marginTop: 8 }}>
           <label style={{ fontSize: 12, color: "#666" }}>{f.label}</label>
+          {/* `?? ""` because `values` is empty on the first render (see above), and
+              a value of `undefined` makes React treat the field as UNCONTROLLED —
+              it then logs "changing an uncontrolled input to be controlled" as soon
+              as the streamed args arrive. */}
           {f.multiline ? (
-            <textarea style={{ ...field, minHeight: 64 }} value={values[f.key]} disabled={done} onChange={(e) => set(f.key, e.target.value)} />
+            <textarea style={{ ...field, minHeight: 64 }} value={values[f.key] ?? ""} disabled={done} onChange={(e) => set(f.key, e.target.value)} />
           ) : (
-            <input style={field} value={values[f.key]} disabled={done} onChange={(e) => set(f.key, e.target.value)} />
+            <input style={field} value={values[f.key] ?? ""} disabled={done} onChange={(e) => set(f.key, e.target.value)} />
           )}
         </div>
       ))}
@@ -320,6 +344,7 @@ export function HumanInTheLoop({ agentId }: { agentId: string }) {
     render: (p) => (
       <EditableForm
         title="Bug report"
+        toolCallId={p.toolCallId}
         status={p.status}
         respond={p.respond as Respond}
         args={p.args as Record<string, unknown>}
@@ -361,6 +386,7 @@ export function HumanInTheLoop({ agentId }: { agentId: string }) {
     render: (p) => (
       <EditableForm
         title="Press release"
+        toolCallId={p.toolCallId}
         status={p.status}
         respond={p.respond as Respond}
         args={p.args as Record<string, unknown>}

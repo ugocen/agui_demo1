@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { updateThreadTitle, upsertThread } from "@/lib/threads";
 import { useAccessToken } from "@/components/AuthGate";
 import { richCatalog } from "@/components/a2ui/richCatalog";
+import { DocumentCanvasPanel, DocumentCanvasProvider } from "@/components/canvas/DocumentCanvas";
 import { CardCatalog } from "@/components/cards/cardCatalog";
 import { HumanInTheLoop } from "@/components/hitl/HumanInTheLoop";
 import type { UiMode } from "@/components/workspace/WorkspaceShell";
@@ -143,28 +144,34 @@ export function AgentChat({
       // emit. static mode passes nothing, so the A2UI renderer stays out.
       a2ui={isA2ui ? { catalog: richCatalog, includeSchema: true } : undefined}
     >
-      <FallbackRender />
-      {isA2ui ? null : <CardCatalog />}
-      <HumanInTheLoop agentId={agentId} />
-      <ThreadTitleTracker agentId={agentId} threadId={threadId} />
-      <div className="chat-body">
-        <div className="chat-region">
-          <div className="chat-toolbar">
-            <span />
-            <button
-              className="ghost-btn"
-              onClick={() => setInspectorOpen((open) => !open)}
-              title="Inspect the live AG-UI state and message stream"
-            >
-              {inspectorOpen ? "Hide inspector" : "Inspect state"}
-            </button>
+      {/* The canvas is fed by the HITL draft forms and rendered beside the chat,
+          so both live under one provider. It opens by itself when a draft
+          arrives — there is no per-agent condition on mounting it. */}
+      <DocumentCanvasProvider>
+        <FallbackRender />
+        {isA2ui ? null : <CardCatalog />}
+        <HumanInTheLoop agentId={agentId} />
+        <ThreadTitleTracker agentId={agentId} threadId={threadId} />
+        <div className="chat-body">
+          <div className="chat-region">
+            <div className="chat-toolbar">
+              <span />
+              <button
+                className="ghost-btn"
+                onClick={() => setInspectorOpen((open) => !open)}
+                title="Inspect the live AG-UI state and message stream"
+              >
+                {inspectorOpen ? "Hide inspector" : "Inspect state"}
+              </button>
+            </div>
+            <div className="chat-host">
+              <CopilotChat key={threadId} agentId={agentId} threadId={threadId} />
+            </div>
           </div>
-          <div className="chat-host">
-            <CopilotChat key={threadId} agentId={agentId} threadId={threadId} />
-          </div>
+          <DocumentCanvasPanel />
+          {inspectorOpen ? <EventInspector agentId={agentId} /> : null}
         </div>
-        {inspectorOpen ? <EventInspector agentId={agentId} /> : null}
-      </div>
+      </DocumentCanvasProvider>
     </CopilotKitProvider>
   );
 }

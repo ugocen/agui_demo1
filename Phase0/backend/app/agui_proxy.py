@@ -18,6 +18,7 @@ import boto3
 import httpx
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,11 +55,31 @@ def session_id_from_thread(body: bytes) -> str:
 
 
 def sigv4_headers(url: str, body: bytes, region: str, base_headers: dict) -> dict:
-    credentials = boto3.Session().get_credentials()
-    if credentials is None:
-        raise HTTPException(status_code=500, detail="no AWS credentials available for SigV4")
+    """SigV4-sign the upstream AgentCore call with the host's AWS credentials.
+
+    Credentials here are usually a short-lived `aws login` session, so resolving
+    them FAILS as a matter of course once it expires: botocore raises
+    LoginRefreshRequired (a BotoCoreError) out of `get_frozen_credentials()`.
+    Uncaught, that left FastAPI to return its bare-text 500 — which, being raised
+    outside CORSMiddleware, reaches the browser with no CORS headers and shows up
+    as an opaque `TypeError: Failed to fetch`. Every agent looked broken and the
+    one thing the user had to do was invisible. Convert it to a 503 that says so.
+    """
+    try:
+        credentials = boto3.Session().get_credentials()
+        if credentials is None:
+            raise HTTPException(
+                status_code=503,
+                detail="no AWS credentials available for SigV4 — sign in with `aws login`",
+            )
+        frozen = credentials.get_frozen_credentials()
+    except (BotoCoreError, ClientError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"AWS credentials unavailable — re-authenticate with `aws login` ({type(error).__name__}: {error})",
+        )
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=base_headers)
-    SigV4Auth(credentials.get_frozen_credentials(), "bedrock-agentcore", region).add_auth(aws_request)
+    SigV4Auth(frozen, "bedrock-agentcore", region).add_auth(aws_request)
     return dict(aws_request.headers)
 
 
@@ -191,7 +212,13 @@ async def agui_health(
         SESSION_HEADER: session_id,
     }
     url = invocation_url(runtime_arn, region)
-    headers = sigv4_headers(url, body, region, base_headers)
+    # This endpoint answers "is the agent up?" with a verdict, and the banner is
+    # the only place the user ever sees it — so report a local credential failure
+    # as the verdict's detail rather than raising it into an opaque fetch error.
+    try:
+        headers = sigv4_headers(url, body, region, base_headers)
+    except HTTPException as error:
+        return {"agent_id": agent_id, "alive": False, "detail": str(error.detail)}
 
     # AgentCore takes ~30s to give up on an unhealthy runtime; read generously so
     # that verdict is captured rather than the request timing out first.

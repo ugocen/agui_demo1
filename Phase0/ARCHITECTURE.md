@@ -34,8 +34,9 @@ Phase 0 — those are Phase 1+ per the implementation plan.
 
 ### 2a. Frontend (`Phase0/frontend`, port 3000)
 - Next.js 16 (App Router) + React 19 + CopilotKit 1.62 (v2 subpath APIs).
-- Renders the workspace shell, agent chat, generative-UI cards, the bug canvas,
-  and the state inspector.
+- Renders the workspace shell, agent chat, generative-UI cards, the document
+  canvas (any `draft_*` HITL form shown as a document, side by side with the
+  editable fields), and the state inspector.
 - Reads config from `Phase0/.env` at startup via `next.config.ts`
   (`NEXT_PUBLIC_*`).
 - Contains the **CopilotKit runtime** as an API route
