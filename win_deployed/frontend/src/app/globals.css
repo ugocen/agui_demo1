@@ -741,6 +741,11 @@ a {
 
 .canvas-preview p {
   color: var(--foreground);
+  margin-bottom: 8px;
+}
+
+.canvas-preview p:last-child {
+  margin-bottom: 0;
 }
 
 .canvas-source {
