@@ -24,9 +24,24 @@ import { useEffect, useRef, useState } from "react";
 import { z } from "zod/v3";
 
 import { DocumentField, useDocumentCanvas } from "@/components/canvas/DocumentCanvas";
+import { PendingHitlResponder } from "@/components/hitl/pendingHitl";
 
 type Respond = (value: unknown) => void;
 const isDone = (status: string) => status === "complete";
+
+// Every client-proxy card publishes its `respond` while the run is paused on it,
+// so that typing in the chat can answer the card instead of leaving a dangling
+// tool call — see components/hitl/pendingHitl.tsx for what that fixes. It is one
+// line per registration rather than something the cards do for themselves,
+// because the tools are registered here and the cards stay presentational.
+function hitl(toolCallId: string, respond: Respond | undefined, card: React.ReactNode) {
+  return (
+    <>
+      <PendingHitlResponder toolCallId={toolCallId} respond={respond} />
+      {card}
+    </>
+  );
+}
 
 // ---- shared styles (inline, consistent with the app's lightweight cards) ----
 const box: React.CSSProperties = {
@@ -304,7 +319,12 @@ export function HumanInTheLoop({ agentId }: { agentId: string }) {
         .array(z.object({ title: z.string(), points: z.number() }))
         .describe("The tickets that would be created"),
     }),
-    render: (p) => <ApprovalCard status={p.status} respond={p.respond as Respond} args={p.args as ApprovalArgs} />,
+    render: (p) =>
+      hitl(
+        p.toolCallId,
+        p.respond as Respond,
+        <ApprovalCard status={p.status} respond={p.respond as Respond} args={p.args as ApprovalArgs} />
+      ),
   });
 
   // 2) Release Readiness — go/no-go is a LangGraph interrupt(), NOT a Strands
@@ -341,23 +361,26 @@ export function HumanInTheLoop({ agentId }: { agentId: string }) {
       actual_behavior: z.string(),
       environment: z.string(),
     }),
-    render: (p) => (
-      <EditableForm
-        title="Bug report"
-        toolCallId={p.toolCallId}
-        status={p.status}
-        respond={p.respond as Respond}
-        args={p.args as Record<string, unknown>}
-        fields={[
-          { key: "title", label: "Title" },
-          { key: "severity", label: "Severity" },
-          { key: "steps_to_reproduce", label: "Steps to reproduce", multiline: true },
-          { key: "expected_behavior", label: "Expected behavior", multiline: true },
-          { key: "actual_behavior", label: "Actual behavior", multiline: true },
-          { key: "environment", label: "Environment" },
-        ]}
-      />
-    ),
+    render: (p) =>
+      hitl(
+        p.toolCallId,
+        p.respond as Respond,
+        <EditableForm
+          title="Bug report"
+          toolCallId={p.toolCallId}
+          status={p.status}
+          respond={p.respond as Respond}
+          args={p.args as Record<string, unknown>}
+          fields={[
+            { key: "title", label: "Title" },
+            { key: "severity", label: "Severity" },
+            { key: "steps_to_reproduce", label: "Steps to reproduce", multiline: true },
+            { key: "expected_behavior", label: "Expected behavior", multiline: true },
+            { key: "actual_behavior", label: "Actual behavior", multiline: true },
+            { key: "environment", label: "Environment" },
+          ]}
+        />
+      ),
   });
 
   // 4) Press Release — one multiple-choice framing question
@@ -368,7 +391,12 @@ export function HumanInTheLoop({ agentId }: { agentId: string }) {
       question: z.string(),
       options: z.array(z.string()).describe("2-4 options the user picks from"),
     }),
-    render: (p) => <ChoiceCard status={p.status} respond={p.respond as Respond} args={p.args as ChoiceArgs} />,
+    render: (p) =>
+      hitl(
+        p.toolCallId,
+        p.respond as Respond,
+        <ChoiceCard status={p.status} respond={p.respond as Respond} args={p.args as ChoiceArgs} />
+      ),
   });
 
   // 5) Press Release — review/edit the draft, then submit
@@ -383,23 +411,26 @@ export function HumanInTheLoop({ agentId }: { agentId: string }) {
       boilerplate: z.string(),
       contact: z.string(),
     }),
-    render: (p) => (
-      <EditableForm
-        title="Press release"
-        toolCallId={p.toolCallId}
-        status={p.status}
-        respond={p.respond as Respond}
-        args={p.args as Record<string, unknown>}
-        fields={[
-          { key: "headline", label: "Headline" },
-          { key: "subheadline", label: "Subheadline" },
-          { key: "dateline", label: "Dateline" },
-          { key: "body", label: "Body", multiline: true },
-          { key: "boilerplate", label: "Boilerplate", multiline: true },
-          { key: "contact", label: "Contact" },
-        ]}
-      />
-    ),
+    render: (p) =>
+      hitl(
+        p.toolCallId,
+        p.respond as Respond,
+        <EditableForm
+          title="Press release"
+          toolCallId={p.toolCallId}
+          status={p.status}
+          respond={p.respond as Respond}
+          args={p.args as Record<string, unknown>}
+          fields={[
+            { key: "headline", label: "Headline" },
+            { key: "subheadline", label: "Subheadline" },
+            { key: "dateline", label: "Dateline" },
+            { key: "body", label: "Body", multiline: true },
+            { key: "boilerplate", label: "Boilerplate", multiline: true },
+            { key: "contact", label: "Contact" },
+          ]}
+        />
+      ),
   });
 
   return null;
