@@ -9,6 +9,10 @@
 # Usage:  win_deployed/scripts/check_sync.sh
 # Exit 0 = in sync. Exit 1 = drift (details printed). Read-only: changes nothing.
 #
+# Scope: source -> payload tree ONLY. This never opens an archive, so it stays
+# green when the trees are current but the zips in dist/ were not rebuilt.
+# check_zips.sh covers that second half; run both before a delivery.
+#
 # How: re-materialize the payload into a temp dir straight from Phase0/, then diff
 # it against the committed win_deployed/ trees. Only CODE is compared — the
 # hand-written enterprise files (README.md, .gitignore, .env*.example) intentionally
@@ -53,6 +57,7 @@ done
 
 if [ "$drift" -eq 0 ]; then
   echo "OK: win_deployed/ payloads match their sources — backend+frontend from Phase0/, agents from cloud_deploy/ (version $(cat "$OUT/VERSION" 2>/dev/null || echo '?'))"
+  echo "    (payload trees only — run check_zips.sh to confirm dist/ was rebuilt from them)"
   exit 0
 fi
 
@@ -62,4 +67,5 @@ echo "  0. cloud_deploy/scripts/sync_agents.sh    # if an AGENT changed in Phase
 echo "  1. win_deployed/scripts/build_packages.sh   # re-sync + rewrite MANIFEST"
 echo "  2. bump win_deployed/VERSION and add a CHANGELOG.md entry"
 echo "  3. win_deployed/scripts/make_zips.sh        # rebuild the zips to send"
+echo "  4. win_deployed/scripts/check_zips.sh       # verify dist/ matches the payload"
 exit 1
