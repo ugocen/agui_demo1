@@ -124,7 +124,27 @@ no `Phase0/` counterpart and would otherwise read as spurious differences).
 - **exit 1** — drift; the diff is printed per tree, followed by the recovery
   steps (re-sync → bump VERSION + CHANGELOG → rebuild zips).
 
-Run this before any delivery, and any time you touch `Phase0/`.
+That covers **source → payload tree**. The other half is **payload tree →
+archive**:
+
+```bash
+win_deployed/scripts/check_zips.sh
+```
+
+Also read-only. `check_sync.sh` never opens an archive, so a change that was
+synced with `build_packages.sh` but never packaged with `make_zips.sh` leaves it
+green while the zips that actually ship are stale — and the enterprise side has
+no git to notice. `check_zips.sh` closes that gap by extracting each archive and
+comparing it with the payload:
+
+- the three source zips against `backend/ frontend/ agents/` (mirroring
+  `make_zips.sh`'s exclude list, so omitted artifacts are not false drift);
+- each `dist/agentcore/<agent>-<VERSION>.zip` against that agent's `*.py`
+  modules (the packages also carry vendored wheels, and `requirements.txt`/
+  `.lock` are build inputs that are deliberately not packaged);
+- both `SHA256SUMS.txt` files against the archives sitting next to them.
+
+Run **both** before any delivery, and any time you touch `Phase0/`.
 
 ### 3. Produce the deliverables
 
@@ -275,7 +295,7 @@ as a signal, and make sure `VERSION` and `CHANGELOG.md` were bumped to match.
 | 4 | No git on the enterprise side — zip delivery, separate folders | `make_zips.sh` produces three independent zips; no git metadata, no cross-folder references. | **Met** |
 | 5 | `backend/` and `frontend/` each get their own `.gitignore` and `README.md`, for Windows 11 + WSL2 | Present in both (plus `agents/`), hand-written and owned by `win_deployed/`, protected from the sync. `.gitattributes` added on top for LF enforcement. | **Met** |
 | 6 | Nothing about our dev environment ships | `.claude/`, `.agents/`, `CLAUDE.md`, `AGENTS.md` excluded twice — in `_payload.sh` `EXCLUDES` and again in `make_zips.sh` `-x` patterns. | **Met** |
-| 7 | `win_deployed/` is versioned and diffable against `Phase0/` | `VERSION` + `CHANGELOG.md` + `MANIFEST.sha256`; `check_sync.sh` gives a machine-checkable in-sync/drift verdict. | **Met, with the caveats below.** |
+| 7 | `win_deployed/` is versioned and diffable against `Phase0/` | `VERSION` + `CHANGELOG.md` + `MANIFEST.sha256`; `check_sync.sh` gives a machine-checkable in-sync/drift verdict for source → payload tree, and `check_zips.sh` does the same for payload tree → the archives in `dist/`. | **Met, with the caveats below.** |
 
 ### Known caveats (requirement 7)
 
