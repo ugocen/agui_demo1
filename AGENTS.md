@@ -131,6 +131,19 @@ from it and **refuses to build without it**, or if it is older than
 delivered bytes twice, so the lock is what makes a dependency bump a reviewable
 diff instead of a surprise found by comparing zips.
 
+## Observability
+
+AgentCore ships stdout logs and platform metrics for free. **Traces are opt-in,
+and they come from ADOT** — two pieces that must stay in step or the runtime does
+not start at all: `aws-opentelemetry-distro` in every agent's `requirements.txt`,
+and the `["opentelemetry-instrument", "agent.py"]` entry point in
+`Phase0/scripts/deploy_agent.py`. Deploying a zip built before that dependency
+landed fails as an initialization timeout, not as a missing-package error.
+
+The account-side prerequisites (CloudWatch Transaction Search;
+`logs:PutResourcePolicy` on the execution role) and which stream carries what are
+in `cloud_deploy/README.md` under "Logs and traces".
+
 ## Where things live
 
 - **Backend routing / catalog:** `Phase0/backend/app/agents_catalog.py`,

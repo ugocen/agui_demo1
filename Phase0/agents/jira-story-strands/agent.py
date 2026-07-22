@@ -87,7 +87,10 @@ except ImportError:
 # turn OTEL off. Keyed off an explicit LOCAL_DEV flag (set it in agents/.env) —
 # inferring "am I local?" from an injected variable was wrong once already and
 # silently disabled the tracing we deploy AgentCore to get. .env never ships in
-# the zip, so LOCAL_DEV is present locally and absent on AgentCore.
+# the zip, so LOCAL_DEV is present locally and absent on AgentCore. That tracing
+# comes from ADOT and only ADOT: aws-opentelemetry-distro in requirements.txt
+# plus the ["opentelemetry-instrument", "agent.py"] entry point in
+# deploy_agent.py — runtime hosting alone emits stdout logs and nothing else.
 if os.environ.get("LOCAL_DEV", "").strip().lower() in ("1", "true", "yes", "on"):
     os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 

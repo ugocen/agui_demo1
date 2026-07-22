@@ -76,9 +76,17 @@ uv pip install \
 echo "==> Copying agent sources to the package root"
 cp "$AGENT_DIR"/*.py "$PACKAGE_DIR/"
 
-echo "==> Normalizing permissions (644 files, 755 dirs)"
+echo "==> Normalizing permissions (644 files, 755 dirs and console scripts)"
 find "$PACKAGE_DIR" -type d -exec chmod 755 {} +
 find "$PACKAGE_DIR" -type f -exec chmod 644 {} +
+# bin/ holds the console scripts that came with the dependencies, and the runtime
+# entry point IS one of them: ["opentelemetry-instrument", "agent.py"]. AgentCore
+# needs 755 on executables, so the blanket 644 above has to be undone here — left
+# at 644 the runtime never goes healthy and reports an initialization timeout,
+# with nothing in the logs pointing at a permission bit.
+if [ -d "$PACKAGE_DIR/bin" ]; then
+  find "$PACKAGE_DIR/bin" -type f -exec chmod 755 {} +
+fi
 
 echo "==> Verifying every native binary is ARM64"
 bad=0
@@ -127,5 +135,25 @@ if [ "$root_entry_count" -eq 0 ]; then
   echo "FAIL: agent.py is not at the zip root" >&2
   exit 1
 fi
+
+# The deployed entry point is ["opentelemetry-instrument", "agent.py"]
+# (scripts/deploy_agent.py), so a zip without a runnable opentelemetry-instrument
+# is a zip that cannot start. Both failure modes — dependency dropped from
+# requirements.txt, or the 644 pass above reaching bin/ — surface at deploy time
+# as an initialization timeout, hours later and far from the cause. Check here.
+otel_entry="$(unzip -Z "$ZIP_PATH" 'bin/opentelemetry-instrument' 2>/dev/null | head -1)"
+case "$otel_entry" in
+  -rwxr-xr-x*) ;;
+  "")
+    echo "FAIL: bin/opentelemetry-instrument is missing from the zip." >&2
+    echo "      aws-opentelemetry-distro must stay in $AGENT_NAME/requirements.txt" >&2
+    echo "      (and in requirements.lock — rerun scripts/lock_agents.sh)." >&2
+    exit 1
+    ;;
+  *)
+    echo "FAIL: bin/opentelemetry-instrument is not executable ($otel_entry)" >&2
+    exit 1
+    ;;
+esac
 
 echo "OK: $ZIP_PATH (${zip_mb} MB zipped, ${unzipped_mb} MB unzipped)"

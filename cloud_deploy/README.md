@@ -93,7 +93,7 @@ deploy path here — deployment is **manual via the AgentCore Console**.
    Phase0/scripts/build_zip.sh cloud_deploy/agents/<agent-dir>
    ```
 2. **Create the runtime** in the enterprise AgentCore Console: protocol `AGUI`,
-   runtime `PYTHON_3_13`, entrypoint `agent.py`, upload the zip.
+   runtime `PYTHON_3_13`, entry point `agent.py`, upload the zip.
 3. **Set the runtime environment variables.** The console is the only place these
    are supplied — they are not in the zip. All three are **mandatory**; the agent
    raises `RuntimeError` at startup without them and has no Bedrock fallback:
@@ -108,18 +108,44 @@ deploy path here — deployment is **manual via the AgentCore Console**.
    Forgetting one produces the *same* symptom as a wrong port — the runtime never
    goes healthy and the invoke fails with an initialization timeout. The real
    error is in the `[runtime-logs]` stream of the runtime's log group; see
-   "Reading the logs" below.
-4. **Backend + frontend** run the Phase 0 code with the enterprise env files
+   "Logs and traces" below.
+
+   Do **not** copy `LOCAL_DEV` out of `env/agents.env.example` into the console.
+   That file doubles as the local-run env, where `LOCAL_DEV=1` sets
+   `OTEL_SDK_DISABLED=true`; set on a runtime it silently turns tracing off there
+   too. Only the four variables above belong in the console.
+4. **Wrap the entry point** so the runtime emits traces. It has to end up as the
+   two-element array `["opentelemetry-instrument", "agent.py"]` — the zip carries
+   `aws-opentelemetry-distro` for exactly this. The console's *Entry point* field
+   takes a single file, so if it will not accept the prefix, create the runtime
+   first and then patch it:
+
+   ```bash
+   aws bedrock-agentcore-control update-agent-runtime \
+     --agent-runtime-id <runtime-id> \
+     --role-arn <execution-role-arn> \
+     --network-configuration '{"networkMode":"PUBLIC"}' \
+     --protocol-configuration '{"serverProtocol":"AGUI"}' \
+     --environment-variables BEDROCK_ENDPOINT_URL=...,BEDROCK_API_KEY=...,BEDROCK_MODEL_ID=... \
+     --agent-runtime-artifact '{"codeConfiguration":{"code":{"s3":{"bucket":"<bucket>","prefix":"<key>"}},"runtime":"PYTHON_3_13","entryPoint":["opentelemetry-instrument","agent.py"]}}'
+   ```
+
+   `update-agent-runtime` **replaces** the whole configuration, environment
+   variables included — omit them here and step 3's gateway config is wiped and
+   the runtime stops starting.
+5. **Backend + frontend** run the Phase 0 code with the enterprise env files
    above.
 
-### Reading the logs
+### Logs and traces
 
 One log group per runtime endpoint, created by AgentCore on first invocation:
 
 ```
 /aws/bedrock-agentcore/runtimes/<runtimeId>-DEFAULT
   ├─ [runtime-logs] <UUID>   ← stdout/stderr: tracebacks, the RuntimeError above
-  └─ otel-rt-logs            ← ADOT structured logs + spans
+  ├─ otel-rt-logs            ← ADOT structured logs
+  └─ spans                   ← OTEL spans (runtimes created from 2026-07-20 on;
+                               older ones deliver to the shared aws/spans group)
 ```
 
 The runtime id is `<agent-name with - replaced by _>-<suffix AgentCore generates>`,
@@ -127,8 +153,22 @@ so `a2ui-demo-strands` becomes e.g. `a2ui_demo_strands-XjHRIuAVCG`. List them wi
 `aws bedrock-agentcore-control list-agent-runtimes`, then
 `aws logs tail /aws/bedrock-agentcore/runtimes/<id>-DEFAULT --since 1d`.
 
-Spans and traces (GenAI Observability) additionally need **CloudWatch Transaction
-Search** enabled once per account+region.
+**stdout is free; everything else has to be switched on.** AgentCore ships the
+`[runtime-logs]` streams and the `AWS/Bedrock-AgentCore` metrics (invocations,
+latency, errors, sessions) with no work at all. The other two streams are
+created empty and stay empty until all of this is true:
+
+* the zip carries `aws-opentelemetry-distro` **and** the entry point is wrapped
+  (steps 1 and 4 above) — this is the half that was missing until 2026-07-22, and
+  the symptom was exactly that: `otel-rt-logs` present, never written to;
+* **CloudWatch Transaction Search** is enabled once per account+region;
+* the execution role grants `logs:PutResourcePolicy` on
+  `/aws/bedrock-agentcore/runtimes/*`, which is what lets X-Ray deliver spans to
+  the agent's own log group. See `Phase0/aws-setup/execution-role-policy.json`.
+
+For the enterprise copy this matters more than it does on Bedrock: the model call
+goes to the gateway, so there are no `AWS/Bedrock` metrics and no model-invocation
+logs anywhere. Spans are the **only** place token counts and model latency appear.
 
 ## Note on leftover local files
 
