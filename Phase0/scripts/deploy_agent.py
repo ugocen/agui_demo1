@@ -50,7 +50,25 @@ import time
 from pathlib import Path
 
 import boto3
+from boto3.s3.transfer import TransferConfig
+from botocore.config import Config
 from botocore.exceptions import ClientError
+
+# The zips are 37-51 MB since ADOT landed, and boto3's defaults upload them as
+# ten concurrent 8 MB parts. On a modest uplink that splits the bandwidth ten
+# ways, every part then idles past the 60s socket timeout, and all four retries
+# burn the same way — the upload fails after minutes with RequestTimeout on
+# UploadPart, which reads like an AWS problem and is not one. Four larger parts
+# and a longer read timeout keep each part moving.
+S3_CONFIG = Config(
+    connect_timeout=30,
+    read_timeout=300,
+    retries={"max_attempts": 6, "mode": "adaptive"},
+)
+S3_TRANSFER = TransferConfig(
+    multipart_chunksize=16 * 1024 * 1024,
+    max_concurrency=4,
+)
 
 PHASE0_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = PHASE0_DIR / ".env"
@@ -448,7 +466,7 @@ def main() -> None:
     inbound_auth = auth_flag or ("jwt" if agent_name in JWT_AUTH_AGENTS else "iam")
 
     session = boto3.Session(region_name=region)
-    s3 = session.client("s3")
+    s3 = session.client("s3", config=S3_CONFIG)
     control = session.client("bedrock-agentcore-control")
 
     # Resolve the deploy target BEFORE touching S3: the catalog (what the proxy
@@ -478,8 +496,9 @@ def main() -> None:
 
     ensure_bucket(s3, bucket, region)
     object_key = f"{agent_name}/deployment_package.zip"
-    print(f"Uploading {zip_path.name} to s3://{bucket}/{object_key}")
-    s3.upload_file(str(zip_path), bucket, object_key)
+    size_mb = zip_path.stat().st_size / (1024 * 1024)
+    print(f"Uploading {zip_path.name} ({size_mb:.0f} MB) to s3://{bucket}/{object_key}")
+    s3.upload_file(str(zip_path), bucket, object_key, Config=S3_TRANSFER)
 
     # `existing` is already resolved above — catalog first, else the name-derived
     # runtime. An explicit --runtime overrides that with a runtime the naming
