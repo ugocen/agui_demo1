@@ -12,11 +12,13 @@ type CatalogEntry = {
   description: string;
   ui_mode: UiMode;
   enabled: boolean;
+  accepts_files: boolean;
   required_role: string;
   // AgentCore-sourced, read-only
   runtime_arn: string;
   runtime_name: string;
   protocol: string;
+  inbound_auth: string;
   status: string;
   version: string;
   last_synced_at: string | null;
@@ -24,7 +26,7 @@ type CatalogEntry = {
 
 type Editable = Pick<
   CatalogEntry,
-  "display_name" | "description" | "ui_mode" | "enabled" | "required_role"
+  "display_name" | "description" | "ui_mode" | "enabled" | "required_role" | "accepts_files"
 >;
 
 const EDITABLE_KEYS = [
@@ -33,6 +35,7 @@ const EDITABLE_KEYS = [
   "ui_mode",
   "enabled",
   "required_role",
+  "accepts_files",
 ] as const;
 
 const UI_MODE_HELP: Record<UiMode, string> = {
@@ -185,9 +188,18 @@ export function AgentCatalogAdmin() {
                 <th style={cell}>Description</th>
                 <th style={cell}>UI mode</th>
                 <th style={cell}>Role</th>
+                <th style={cell} title="Offer file attachments in this agent's composer">
+                  Files
+                </th>
                 <th style={cell}>On</th>
                 <th style={roCell}>Runtime (AgentCore)</th>
                 <th style={roCell}>Protocol</th>
+                <th
+                  style={roCell}
+                  title="How the runtime authenticates its caller, read from AgentCore: iam = the backend SigV4-signs; jwt = the caller's own Entra token is forwarded and AgentCore validates it."
+                >
+                  Inbound
+                </th>
                 <th style={roCell}>Status</th>
                 <th style={roCell}>Ver</th>
                 <th style={cell}></th>
@@ -246,6 +258,16 @@ export function AgentCatalogAdmin() {
                     <td style={{ ...cell, textAlign: "center" }}>
                       <input
                         type="checkbox"
+                        title="Show the attachment button. Only useful for an agent whose prompt reads images — a file an agent ignores looks broken to the user."
+                        checked={draft.accepts_files ?? entry.accepts_files}
+                        onChange={(event) =>
+                          setDraft(entry.agent_id, { accepts_files: event.target.checked })
+                        }
+                      />
+                    </td>
+                    <td style={{ ...cell, textAlign: "center" }}>
+                      <input
+                        type="checkbox"
                         checked={draft.enabled ?? entry.enabled}
                         onChange={(event) => setDraft(entry.agent_id, { enabled: event.target.checked })}
                       />
@@ -256,6 +278,18 @@ export function AgentCatalogAdmin() {
                     </td>
                     <td style={roCell}>
                       <span className="badge badge-blue">{entry.protocol || "?"}</span>
+                    </td>
+                    <td style={roCell}>
+                      <span
+                        className={`badge ${entry.inbound_auth === "jwt" ? "badge-green" : "badge-gray"}`}
+                        title={
+                          entry.inbound_auth === "jwt"
+                            ? "The caller's Entra token is forwarded and AgentCore validates it — this agent sees who is asking."
+                            : "The backend SigV4-signs the call; the caller's identity stops at the platform boundary."
+                        }
+                      >
+                        {entry.inbound_auth || "iam"}
+                      </span>
                     </td>
                     <td style={roCell}>
                       <span className={`badge ${entry.status === "READY" ? "badge-green" : "badge-gray"}`}>

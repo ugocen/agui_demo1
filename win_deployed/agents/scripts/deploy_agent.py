@@ -9,6 +9,15 @@ Usage: uv run scripts/deploy_agent.py <agent-name> <zip-path>
 Uploads the zip to s3://$DEPLOY_BUCKET/<agent-name>/deployment_package.zip,
 updates the agent runtime, waits for READY and prints the runtime ARN.
 
+Inbound auth is chosen PER AGENT (JWT_AUTH_AGENTS below, overridable with
+--auth=iam|jwt), not from AUTH_MODE. A runtime is either IAM-authorized — the
+backend proxy SigV4-signs the call and the caller's identity stops at the
+platform boundary — or JWT-authorized, where AgentCore validates the user's own
+Entra token and the proxy forwards it. Reading that choice from AUTH_MODE, as
+this script used to, meant flipping every runtime to JWT the moment browser SSO
+was switched on, leaving the SigV4 agents rejecting the proxy that routes to
+them.
+
 The deploy target is resolved CATALOG-FIRST. The backend proxy routes on the
 platform DB catalog entry's runtime_arn (backend/phase0.db, table
 agent_catalog) — not on any naming convention — so that ARN is the runtime the
@@ -41,7 +50,25 @@ import time
 from pathlib import Path
 
 import boto3
+from boto3.s3.transfer import TransferConfig
+from botocore.config import Config
 from botocore.exceptions import ClientError
+
+# The zips are 37-51 MB since ADOT landed, and boto3's defaults upload them as
+# ten concurrent 8 MB parts. On a modest uplink that splits the bandwidth ten
+# ways, every part then idles past the 60s socket timeout, and all four retries
+# burn the same way — the upload fails after minutes with RequestTimeout on
+# UploadPart, which reads like an AWS problem and is not one. Four larger parts
+# and a longer read timeout keep each part moving.
+S3_CONFIG = Config(
+    connect_timeout=30,
+    read_timeout=300,
+    retries={"max_attempts": 6, "mode": "adaptive"},
+)
+S3_TRANSFER = TransferConfig(
+    multipart_chunksize=16 * 1024 * 1024,
+    max_concurrency=4,
+)
 
 PHASE0_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = PHASE0_DIR / ".env"
@@ -58,7 +85,22 @@ CATALOG_AGENT_IDS = {
     "bug-report-strands": "bugreport",
     "a2ui-demo-strands": "a2uidemo",
     "press-release-strands": "pressrelease",
+    # Deployed after the convention existed: the runtime is named
+    # jira_story_strands, whose slug is the directory name, so it maps to itself.
+    "jira-story-strands": "jira-story-strands",
+    "whoami-strands": "whoami-strands",
 }
+
+# Agents whose runtime takes the caller's Entra token directly, via AgentCore's
+# inbound JWT authorizer, instead of the SigV4/IAM auth every other runtime uses.
+#
+# This is per-agent and cannot be a global switch: a runtime is EITHER
+# IAM-authorized or JWT-authorized, and the backend proxy signs its call
+# accordingly (SigV4 vs forwarding the user's bearer). Flipping every runtime to
+# JWT because AUTH_MODE happens to say `entra` — which is what this script used
+# to do — would leave the five SigV4 agents rejecting every request from the very
+# proxy that routes to them, for a setting whose name is about *browser* sign-in.
+JWT_AUTH_AGENTS = {"whoami-strands"}
 
 READY_TIMEOUT_SECONDS = 300
 POLL_SECONDS = 5
@@ -92,15 +134,51 @@ def build_env_vars(env: dict, control, existing_runtime_id: str | None) -> dict:
             print(f"WARN: could not read existing env vars, not merging: {error}")
 
     merged["BEDROCK_MODEL_ID"] = require(env, "BEDROCK_MODEL_ID")
-    for key in ("BEDROCK_ENDPOINT_URL", "BEDROCK_API_KEY", "BEDROCK_STREAMING"):
+    for key in (
+        "BEDROCK_ENDPOINT_URL",
+        "BEDROCK_API_KEY",
+        "BEDROCK_STREAMING",
+        # Identity config, for an agent that reads the caller's token
+        # (whoami-strands). Passed through the same way as the gateway variables
+        # and for the same reason: only one agent uses them, none of the others
+        # is harmed by their presence, and requiring them here would block the
+        # deploy of every agent that has no idea what they are.
+        "ENTRA_TENANT_ID",
+        "GRAPH_OBO_PROVIDER_NAME",
+        "GRAPH_OBO_SCOPES",
+    ):
         value = env.get(key, "").strip()
         if value:
             merged[key] = value
+    # Resolved, not copied: the agent re-verifies the token it is handed, and it
+    # must pin the SAME audience the runtime's authorizer does or the two
+    # disagree about what a valid token is.
+    audience = entra_audience(env)
+    if audience:
+        merged["ENTRA_ALLOWED_AUDIENCE"] = audience
     return merged
 
 
-def load_env() -> dict:
+def entra_audience(env: dict) -> str:
+    """The `aud` the browser's token carries, for the authorizer AND the agent.
+
+    Defaults to the SPA client id because the default agent token is an Entra ID
+    token, whose audience is exactly that. One function so the runtime's
+    authorizer and the agent's own re-verification can never pin different values.
+    """
+    return env.get("ENTRA_ALLOWED_AUDIENCE", "").strip() or env.get("ENTRA_SPA_CLIENT_ID", "").strip()
+
+
+def load_env(required: bool = True) -> dict:
+    """Parse the .env next to this script's parent into a plain dict.
+
+    `required=False` is for invoke_agentcore.py, which shares this: it only wants
+    AWS_REGION and CATALOG_DB_PATH, both optional, and must stay runnable in a
+    checkout that has no .env at all.
+    """
     if not ENV_PATH.exists():
+        if not required:
+            return {}
         sys.exit(f"FAIL: {ENV_PATH} not found, copy .env.example to .env and fill it")
     values = {}
     for line in ENV_PATH.read_text().splitlines():
@@ -138,6 +216,27 @@ def runtime_name_for(agent_name: str) -> str:
     return agent_name.replace("-", "_")
 
 
+def list_runtimes(control) -> list[dict]:
+    """Every agent runtime in the region, all pages.
+
+    One place, so that a lookup and the "these are the names that exist" text in
+    its failure message are always built from the same call. invoke_agentcore.py
+    used to search live runtimes but print a hardcoded list of names it had never
+    searched, and so could deny a name while listing it as known.
+    """
+    runtimes: list[dict] = []
+    token = None
+    while True:
+        kwargs = {"maxResults": 100}
+        if token:
+            kwargs["nextToken"] = token
+        page = control.list_agent_runtimes(**kwargs)
+        runtimes.extend(page.get("agentRuntimes", []))
+        token = page.get("nextToken")
+        if not token:
+            return runtimes
+
+
 def resolve_target(control, target: str):
     """Find the runtime an explicit --runtime flag names, by runtime name or ARN.
 
@@ -148,37 +247,23 @@ def resolve_target(control, target: str):
     A2UI_demo). The default path is the catalog-first resolution in main(); this
     only runs when --runtime is given, and exits if the name/ARN is not found.
     """
-    wanted_arn = target if target.startswith("arn:") else ""
-    wanted_name = "" if wanted_arn else target
-    token = None
-    while True:
-        kwargs = {"maxResults": 100}
-        if token:
-            kwargs["nextToken"] = token
-        page = control.list_agent_runtimes(**kwargs)
-        for runtime in page.get("agentRuntimes", []):
-            if wanted_arn and runtime.get("agentRuntimeArn") == wanted_arn:
-                return runtime
-            if wanted_name and runtime.get("agentRuntimeName") == wanted_name:
-                return runtime
-        token = page.get("nextToken")
-        if not token:
-            sys.exit(f"FAIL: --runtime={target} not found. Deploy without --runtime to create a new one.")
+    key = "agentRuntimeArn" if target.startswith("arn:") else "agentRuntimeName"
+    runtimes = list_runtimes(control)
+    match = next((runtime for runtime in runtimes if runtime.get(key) == target), None)
+    if match is None:
+        known = ", ".join(sorted(r.get("agentRuntimeName", "") for r in runtimes)) or "(none)"
+        sys.exit(
+            f"FAIL: --runtime={target} not found. Runtimes in this region: {known}. "
+            "Deploy without --runtime to create a new one."
+        )
+    return match
 
 
 def find_existing_runtime(control, runtime_name: str):
-    token = None
-    while True:
-        kwargs = {"maxResults": 100}
-        if token:
-            kwargs["nextToken"] = token
-        page = control.list_agent_runtimes(**kwargs)
-        for runtime in page.get("agentRuntimes", []):
-            if runtime.get("agentRuntimeName") == runtime_name:
-                return runtime
-        token = page.get("nextToken")
-        if not token:
-            return None
+    return next(
+        (r for r in list_runtimes(control) if r.get("agentRuntimeName") == runtime_name),
+        None,
+    )
 
 
 def resolve_catalog_target(env: dict, agent_name: str, derived_name: str) -> dict | None:
@@ -192,6 +277,12 @@ def resolve_catalog_target(env: dict, agent_name: str, derived_name: str) -> dic
     agent that only ever existed by convention). Also picks up a duplicate row
     pointing at the name-derived runtime so a stray auto-registration is called
     out instead of silently coexisting with the real entry.
+
+    `agent_name` falls back to itself when it is not an agent directory name, so
+    invoke_agentcore.py — which shares this and must resolve identically or it
+    probes a runtime other than the one deployed to — can also pass a catalog
+    agent id ('a2uidemo') straight through. main() checks the allowlist before
+    calling this, so that fallback never changes a deploy.
     """
     configured = env.get("CATALOG_DB_PATH", "").strip()
     db_path = Path(configured).expanduser() if configured else DEFAULT_CATALOG_DB
@@ -206,7 +297,8 @@ def resolve_catalog_target(env: dict, agent_name: str, derived_name: str) -> dic
         return None
     try:
         conn.row_factory = sqlite3.Row
-        row = conn.execute(query.format("agent_id"), (CATALOG_AGENT_IDS[agent_name],)).fetchone()
+        agent_id = CATALOG_AGENT_IDS.get(agent_name, agent_name)
+        row = conn.execute(query.format("agent_id"), (agent_id,)).fetchone()
         if row is None:
             row = conn.execute(query.format("runtime_name"), (derived_name,)).fetchone()
         if row is None:
@@ -262,6 +354,72 @@ def warn_catalog_divergence(control, catalog: dict, derived_name: str) -> None:
     print("\n".join(lines))
 
 
+def jwt_authorizer(env: dict) -> dict:
+    """The `customJWTAuthorizer` config for an agent that takes the user's token.
+
+    Everything here can be derived from the two Entra values the platform already
+    needs (ENTRA_TENANT_ID, ENTRA_SPA_CLIENT_ID), so turning a runtime into a
+    JWT-authorized one costs no new configuration — the explicit ENTRA_DISCOVERY_URL
+    / ENTRA_ALLOWED_AUDIENCE / ENTRA_ALLOWED_CLIENTS still win when set.
+
+    The audience default is the SPA client id because the token the browser sends
+    is an Entra **ID token**, whose `aud` is exactly that. The alternative — an
+    access token for an "Expose an API" scope — is the more orthodox choice but
+    needs an app-registration change, and one specific trap: unless that app's
+    manifest sets `accessTokenAcceptedVersion: 2`, Entra issues a v1 token whose
+    issuer is `https://sts.windows.net/<tid>/`, which will never match the v2.0
+    discovery document's issuer and is rejected with no useful error. If you go
+    that route, set both ENTRA_ALLOWED_AUDIENCE (`api://<client-id>`) and the
+    manifest field.
+    """
+    tenant = env.get("ENTRA_TENANT_ID", "").strip()
+    discovery = env.get("ENTRA_DISCOVERY_URL", "").strip()
+    if not discovery:
+        if not tenant:
+            sys.exit(
+                "FAIL: --auth=jwt needs ENTRA_TENANT_ID (or an explicit ENTRA_DISCOVERY_URL) in .env"
+            )
+        discovery = f"https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration"
+
+    audience = entra_audience(env)
+    clients = [c.strip() for c in env.get("ENTRA_ALLOWED_CLIENTS", "").split(",") if c.strip()]
+    if not audience and not clients:
+        sys.exit(
+            "FAIL: --auth=jwt needs an audience or a client id — set ENTRA_SPA_CLIENT_ID "
+            "(the browser sends an ID token whose `aud` is the SPA client id), or "
+            "ENTRA_ALLOWED_AUDIENCE / ENTRA_ALLOWED_CLIENTS explicitly."
+        )
+
+    config: dict = {"discoveryUrl": discovery}
+    if audience:
+        config["allowedAudience"] = [audience]
+    if clients:
+        config["allowedClients"] = clients
+    print(f"  discoveryUrl : {discovery}")
+    print(f"  allowedAudience: {config.get('allowedAudience', '-')}  allowedClients: {config.get('allowedClients', '-')}")
+    return config
+
+
+def report_inbound_auth(info: dict, intended: str) -> None:
+    """Say what the runtime's inbound auth ACTUALLY is after the deploy.
+
+    Worth a call: the proxy's routing decision is made from the catalog's synced
+    copy of this, and an update that silently kept an old authorizer would send
+    every request to the wrong signing path. Reading it back is also the only way
+    to learn that AgentCore does not drop an existing authorizer when an update
+    omits it — if that is what happened, this line is where it becomes visible.
+    """
+    authorizer = (info.get("authorizerConfiguration") or {}).get("customJWTAuthorizer")
+    actual = "jwt" if authorizer else "iam"
+    print(f"    inbound auth on the runtime: {actual}")
+    if actual != intended:
+        print(
+            f"!!  WARNING: asked for {intended} but the runtime reports {actual}. "
+            "Re-check the deploy, and re-sync the catalog before using this agent — "
+            "the proxy signs on the catalog's copy of this value."
+        )
+
+
 def wait_until_ready(control, runtime_id: str) -> dict:
     deadline = time.time() + READY_TIMEOUT_SECONDS
     while time.time() < deadline:
@@ -279,12 +437,17 @@ def wait_until_ready(control, runtime_id: str) -> dict:
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = [a for a in sys.argv[1:] if a.startswith("--")]
+    known = ("--runtime=", "--auth=")
     target = next((f.split("=", 1)[1] for f in flags if f.startswith("--runtime=")), "")
-    if len(args) != 2 or any(not f.startswith("--runtime=") for f in flags):
+    auth_flag = next((f.split("=", 1)[1].lower() for f in flags if f.startswith("--auth=")), "")
+    if len(args) != 2 or any(not f.startswith(known) for f in flags) or auth_flag not in ("", "iam", "jwt"):
         sys.exit(
-            "usage: deploy_agent.py <agent-name> <zip-path> [--runtime=<name-or-arn>]\n"
+            "usage: deploy_agent.py <agent-name> <zip-path> [--runtime=<name-or-arn>] [--auth=iam|jwt]\n"
             "  --runtime  update an EXISTING runtime whose name this script would not\n"
-            "             guess — e.g. one created by hand in the AgentCore console."
+            "             guess — e.g. one created by hand in the AgentCore console.\n"
+            "  --auth     inbound auth for the runtime. Default: jwt for the agents in\n"
+            "             JWT_AUTH_AGENTS, iam for every other. jwt needs ENTRA_TENANT_ID\n"
+            "             (or ENTRA_DISCOVERY_URL) and an audience in .env."
         )
     agent_name, zip_arg = args
     if agent_name not in CATALOG_AGENT_IDS:
@@ -300,10 +463,10 @@ def main() -> None:
     region = require(env, "AWS_REGION")
     bucket = require(env, "DEPLOY_BUCKET")
     role_arn = require(env, "EXECUTION_ROLE_ARN")
-    auth_mode = env.get("AUTH_MODE", "iam").lower()
+    inbound_auth = auth_flag or ("jwt" if agent_name in JWT_AUTH_AGENTS else "iam")
 
     session = boto3.Session(region_name=region)
-    s3 = session.client("s3")
+    s3 = session.client("s3", config=S3_CONFIG)
     control = session.client("bedrock-agentcore-control")
 
     # Resolve the deploy target BEFORE touching S3: the catalog (what the proxy
@@ -333,8 +496,9 @@ def main() -> None:
 
     ensure_bucket(s3, bucket, region)
     object_key = f"{agent_name}/deployment_package.zip"
-    print(f"Uploading {zip_path.name} to s3://{bucket}/{object_key}")
-    s3.upload_file(str(zip_path), bucket, object_key)
+    size_mb = zip_path.stat().st_size / (1024 * 1024)
+    print(f"Uploading {zip_path.name} ({size_mb:.0f} MB) to s3://{bucket}/{object_key}")
+    s3.upload_file(str(zip_path), bucket, object_key, Config=S3_TRANSFER)
 
     # `existing` is already resolved above — catalog first, else the name-derived
     # runtime. An explicit --runtime overrides that with a runtime the naming
@@ -354,7 +518,21 @@ def main() -> None:
             "codeConfiguration": {
                 "code": {"s3": {"bucket": bucket, "prefix": object_key}},
                 "runtime": "PYTHON_3_13",
-                "entryPoint": ["agent.py"],
+                # The opentelemetry-instrument prefix is what turns traces on, and
+                # it is the ONLY thing that does. AgentCore always ships stdout to
+                # the runtime's log group, so logs looked fine while spans never
+                # existed: on 2026-07-22 every runtime had an `otel-rt-logs` stream
+                # the platform had created and nothing had ever written to, and the
+                # `bedrock-agentcore` metric namespace was empty. "Observability is
+                # automatic on Runtime" in the docs means automatic ONCE ADOT is in
+                # the zip and the entry point is wrapped — not on its own.
+                #
+                # This is one half of a pair. The other is aws-opentelemetry-distro
+                # in each agent's requirements.txt: without it the runtime cannot
+                # resolve the executable and never goes healthy, which surfaces as
+                # an unhelpful initialization timeout. Deploying a zip built before
+                # that dependency landed will fail exactly that way — rebuild it.
+                "entryPoint": ["opentelemetry-instrument", "agent.py"],
             }
         },
         "roleArn": role_arn,
@@ -362,15 +540,11 @@ def main() -> None:
         "protocolConfiguration": {"serverProtocol": "AGUI"},
         "environmentVariables": env_vars,
     }
-    if auth_mode == "entra":
-        discovery_url = require(env, "ENTRA_DISCOVERY_URL")
-        audience = require(env, "ENTRA_ALLOWED_AUDIENCE")
-        runtime_config["authorizerConfiguration"] = {
-            "customJWTAuthorizer": {
-                "discoveryUrl": discovery_url,
-                "allowedAudience": [audience],
-            }
-        }
+    if inbound_auth == "jwt":
+        runtime_config["authorizerConfiguration"] = {"customJWTAuthorizer": jwt_authorizer(env)}
+        print("Inbound auth: JWT (the caller's Entra token; the proxy forwards it instead of SigV4)")
+    else:
+        print("Inbound auth: IAM/SigV4 (the backend proxy signs with the host's AWS credentials)")
 
     if existing:
         runtime_id = existing["agentRuntimeId"]
@@ -384,6 +558,7 @@ def main() -> None:
     info = wait_until_ready(control, runtime_id)
     runtime_arn = info["agentRuntimeArn"]
     print(f"OK: runtime READY, {runtime_arn}")
+    report_inbound_auth(info, inbound_auth)
     if catalog:
         print(f"    the catalog routes '{catalog['agent_id']}' here — the live app serves this build")
     else:

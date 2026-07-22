@@ -191,6 +191,30 @@ Use this when you do **not** have S3 or IAM role access from your workstation.
    - **Entry point**: `agent.py`
    - **Server protocol**: **`AGUI`**  ← the backend only discovers AGUI runtimes
    - **Network mode**: `PUBLIC`
+
+   > **The entry point has to end up as `["opentelemetry-instrument", "agent.py"]`**,
+   > or the runtime emits stdout logs and no traces at all. The console's *Entry
+   > point* field takes a single file, so if it will not accept the prefix, create
+   > the runtime here and patch it after step 4:
+   >
+   > ```bash
+   > aws bedrock-agentcore-control update-agent-runtime \
+   >   --agent-runtime-id <runtime-id> \
+   >   --role-arn <execution-role-arn> \
+   >   --network-configuration '{"networkMode":"PUBLIC"}' \
+   >   --protocol-configuration '{"serverProtocol":"AGUI"}' \
+   >   --environment-variables BEDROCK_ENDPOINT_URL=...,BEDROCK_API_KEY=...,BEDROCK_MODEL_ID=... \
+   >   --agent-runtime-artifact '{"codeConfiguration":{"code":{"s3":{"bucket":"<bucket>","prefix":"<key>"}},"runtime":"PYTHON_3_13","entryPoint":["opentelemetry-instrument","agent.py"]}}'
+   > ```
+   >
+   > That call **replaces** the whole configuration, environment variables
+   > included — pass them again or step 4's gateway config is wiped and the
+   > runtime stops starting.
+   >
+   > The wrapped entry point only works with a 1.10.0-or-later package: it runs
+   > `opentelemetry-instrument` out of the zip, and older zips do not carry it as
+   > a runnable file. Mixing them fails as an initialization timeout that says
+   > nothing about the cause. Path B sets all of this for you.
 4. Set the runtime **environment variables** — this is the only way a deployed agent gets them,
    with no code change:
 

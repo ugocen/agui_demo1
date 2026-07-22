@@ -4,13 +4,22 @@ import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { MsalProvider, useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { AUTH_MODE, BACKEND_URL, ENTRA_SCOPES } from "@/lib/config";
+import { AUTH_MODE, BACKEND_URL, ENTRA_AGENT_SCOPES, ENTRA_SCOPES } from "@/lib/config";
 import { msalInstance } from "@/lib/msal";
 
 const TokenContext = createContext<string | null>(null);
 
 export function useAccessToken(): string | null {
   return useContext(TokenContext);
+}
+
+const AgentTokenContext = createContext<string | null>(null);
+
+/** The tenant-issued token for agents whose AgentCore runtime validates JWTs
+ *  itself. Sent as `X-Agent-Authorization` beside the platform's own bearer —
+ *  see ENTRA_AGENT_SCOPES in lib/config for why one token cannot serve both. */
+export function useAgentToken(): string | null {
+  return useContext(AgentTokenContext);
 }
 
 /** The backend's authoritative view of the caller. Roles are computed server-side
@@ -41,6 +50,7 @@ function EntraGate({ children }: { children: React.ReactNode }) {
   const { instance, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
   const [token, setToken] = useState<string | null>(null);
+  const [agentToken, setAgentToken] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,13 +63,38 @@ function EntraGate({ children }: { children: React.ReactNode }) {
       // We forward the Microsoft Graph *access token* (aud = Graph): the backend
       // calls Graph /me with it (authoritative identity) and resolves AD-group
       // roles. This is the AI SDLC SSO method, hardened with tenant/client pinning.
-      .then((result) => setToken(result.accessToken))
+      .then((result) => {
+        setToken(result.accessToken);
+        // The ID token comes back with the same silent acquisition and is
+        // refreshed with it, so the default agent token costs no extra call.
+        if (ENTRA_AGENT_SCOPES.length === 0) setAgentToken(result.idToken ?? null);
+      })
       .catch((silentError) => {
         if (silentError instanceof InteractionRequiredAuthError) {
           instance.acquireTokenRedirect({ scopes: ENTRA_SCOPES });
           return;
         }
         setError(String(silentError));
+      });
+  }, [instance, accounts, isAuthenticated]);
+
+  // A dedicated API scope was configured, so mint that access token separately.
+  // A failure here is NOT fatal: it only costs the JWT-authorized agents, and
+  // failing the whole sign-in over one optional scope would take the other five
+  // agents down with it.
+  useEffect(() => {
+    if (!isAuthenticated || accounts.length === 0 || ENTRA_AGENT_SCOPES.length === 0) {
+      return;
+    }
+    instance
+      .acquireTokenSilent({ scopes: ENTRA_AGENT_SCOPES, account: accounts[0] })
+      .then((result) => setAgentToken(result.accessToken))
+      .catch((silentError) => {
+        if (silentError instanceof InteractionRequiredAuthError) {
+          instance.acquireTokenRedirect({ scopes: ENTRA_AGENT_SCOPES });
+          return;
+        }
+        console.warn("could not acquire the agent token", silentError);
       });
   }, [instance, accounts, isAuthenticated]);
 
@@ -132,7 +167,9 @@ function EntraGate({ children }: { children: React.ReactNode }) {
     };
   return (
     <TokenContext.Provider value={token}>
-      <MeContext.Provider value={meValue}>{children}</MeContext.Provider>
+      <AgentTokenContext.Provider value={agentToken}>
+        <MeContext.Provider value={meValue}>{children}</MeContext.Provider>
+      </AgentTokenContext.Provider>
     </TokenContext.Provider>
   );
 }
@@ -141,7 +178,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   if (AUTH_MODE !== "entra") {
     return (
       <TokenContext.Provider value={null}>
-        <MeContext.Provider value={IAM_ME}>{children}</MeContext.Provider>
+        <AgentTokenContext.Provider value={null}>
+          <MeContext.Provider value={IAM_ME}>{children}</MeContext.Provider>
+        </AgentTokenContext.Provider>
       </TokenContext.Provider>
     );
   }

@@ -43,9 +43,18 @@ def discover_runtimes() -> list[dict]:
 
         for runtime in page.get("agentRuntimes", []):
             protocol = ""
+            # ListAgentRuntimes returns neither the protocol nor the authorizer, so
+            # the per-runtime Get is the only place both come from. `inbound_auth`
+            # defaults to "iam" on any failure, which is the safe direction: the
+            # proxy then SigV4-signs, and a JWT runtime answers 403 immediately
+            # instead of a user's Entra token being forwarded somewhere it was not
+            # meant to go.
+            inbound_auth = "iam"
             try:
                 detail = client.get_agent_runtime(agentRuntimeId=runtime["agentRuntimeId"])
                 protocol = (detail.get("protocolConfiguration") or {}).get("serverProtocol", "")
+                if (detail.get("authorizerConfiguration") or {}).get("customJWTAuthorizer"):
+                    inbound_auth = "jwt"
             except Exception:
                 pass
             last_updated = runtime.get("lastUpdatedAt")
@@ -57,6 +66,7 @@ def discover_runtimes() -> list[dict]:
                     "status": runtime.get("status"),
                     "version": runtime.get("agentRuntimeVersion"),
                     "protocol": protocol,
+                    "inbound_auth": inbound_auth,
                     "last_updated": last_updated.isoformat() if last_updated else None,
                 }
             )
@@ -88,6 +98,7 @@ async def get_agent(db: AsyncSession, agent_id: str) -> dict | None:
         "runtime_arn": entry.runtime_arn,
         "ui_mode": entry.ui_mode,
         "required_role": entry.required_role,
+        "inbound_auth": entry.inbound_auth or "iam",
     }
 
 
@@ -105,6 +116,7 @@ async def list_agents(
             "capability": "agui",
             "runtime_arn": e.runtime_arn,
             "ui_mode": e.ui_mode,
+            "accepts_files": e.accepts_files,
         }
         for e in entries
     ]

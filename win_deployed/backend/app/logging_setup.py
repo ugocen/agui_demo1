@@ -78,9 +78,32 @@ def setup_logging() -> None:
 
     # Our own app loggers at the configured level; third-party libraries a notch
     # quieter so the trace stays readable.
+    #
+    # `aiosqlite` is the one that actually matters at DEBUG. It logs a line for
+    # both the start AND the completion of every cursor, execute, fetchall,
+    # close, commit and rollback — so a single `GET /api/agents` buries its own
+    # `<-- GET /api/agents 200` under roughly forty lines of
+    # `functools.partial(<built-in method cursor of sqlite3.Connection …>)`, with
+    # the full SELECT column list repeated in each one. The trace this module
+    # exists to keep readable was unreadable in practice; the proxy's
+    # `-> AgentCore (SigV4)` line is the thing you are usually looking for and it
+    # scrolls past in the flood.
     logging.getLogger("app").setLevel(level)
-    for noisy in ("httpx", "httpcore", "botocore", "urllib3", "boto3"):
+    for noisy in (
+        "httpx",
+        "httpcore",
+        "botocore",
+        "urllib3",
+        "boto3",
+        "aiosqlite",
+        "asyncio",
+    ):
         logging.getLogger(noisy).setLevel(logging.INFO)
+    # NOT `sqlalchemy.engine`. Setting that logger to INFO is SQLAlchemy's
+    # documented equivalent of `echo=True` — it TURNS ON full SQL echo rather
+    # than quieting anything, which is the opposite of what this loop is for.
+    # Left alone, SQLAlchemy keeps it at WARN and says nothing. Verified by
+    # adding it here and watching every statement appear.
 
     _CONFIGURED = True
     structlog.stdlib.get_logger("app").info(

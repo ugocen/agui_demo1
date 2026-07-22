@@ -8,14 +8,17 @@ import {
   useDefaultRenderTool,
 } from "@copilotkit/react-core/v2";
 import "@copilotkit/react-core/v2/styles.css";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { updateThreadTitle, upsertThread } from "@/lib/threads";
-import { useAccessToken } from "@/components/AuthGate";
+import { ACCEPTED_IMAGE_TYPES, prepareScreenshot } from "@/lib/screenshots";
+import { useAccessToken, useAgentToken } from "@/components/AuthGate";
 import { richCatalog } from "@/components/a2ui/richCatalog";
 import { DocumentCanvasPanel, DocumentCanvasProvider } from "@/components/canvas/DocumentCanvas";
 import { CardCatalog } from "@/components/cards/cardCatalog";
 import { HumanInTheLoop } from "@/components/hitl/HumanInTheLoop";
+import { PendingHitlProvider, createHitlAwareInput } from "@/components/hitl/pendingHitl";
+import { RunTimeline } from "@/components/pipeline/RunTimeline";
 import type { UiMode } from "@/components/workspace/WorkspaceShell";
 
 // Generic chat surface for ANY agent. Nothing here branches on an agent id: the
@@ -52,6 +55,58 @@ function FallbackRender() {
     []
   );
   return null;
+}
+
+// Run-level failures are invisible by default: a RUN_ERROR event resolves the
+// run SUCCESSFULLY in @ag-ui/client (unlike a malformed chunk, it is not
+// thrown), adds no message, and reaches app code only through `onError`, where
+// CopilotKit's own fallback is a `console.error`. So a runtime that refuses the
+// request, an expired `aws login` session behind the proxy's 503, or a
+// protocol-level agent error all looked identical to "the agent said nothing".
+//
+// This is a banner rather than a chat message on purpose: `agent.addMessage` is
+// the only way to get text into the transcript, and a synthetic assistant turn
+// would then be replayed to the model as its own prior output on every
+// subsequent run.
+/**
+ * Turn the two run errors that read as nonsense into what actually happened.
+ *
+ * `terminated` is the worst of them, and it is not the agent's word. Node's
+ * fetch (undici) throws `TypeError: terminated`, cause "other side closed",
+ * when a response body is cut mid-stream — so what the user sees when the
+ * backend proxy dies half way through a run is the single word "terminated"
+ * attributed to their agent. Verified by reproducing it against a server that
+ * destroys its socket mid-body. The agent is usually still fine on AgentCore;
+ * only the pipe to the browser is gone.
+ *
+ * Same spirit as `scripts/smoke_test.py:explain_run_error`, which does this for
+ * AgentCore's "initialization" error: name the thing worth checking rather than
+ * echoing a word the user cannot act on.
+ */
+function explainRunError(code: string, message: string): string {
+  const text = message || "";
+  if (/\bterminated\b/i.test(text) || /other side closed/i.test(text)) {
+    return (
+      "The connection to the backend dropped part-way through this run — the agent " +
+      "itself is probably still healthy on AgentCore. Check that the backend is " +
+      "still listening on port 8000, then send the message again."
+    );
+  }
+  if (/aws login|credentials|LoginRefreshRequired/i.test(text)) {
+    return `AWS credentials have expired — run \`aws login\`, then retry. (${text})`;
+  }
+  return `${code}: ${text}`;
+}
+
+function RunErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <div className="run-error" role="alert">
+      <span className="run-error-text">{message}</span>
+      <button className="run-error-close" onClick={onDismiss} aria-label="Dismiss error">
+        ×
+      </button>
+    </div>
+  );
 }
 
 function EventInspector({ agentId }: { agentId: string }) {
@@ -113,14 +168,24 @@ export function AgentChat({
   agentName,
   threadId,
   uiMode,
+  acceptsFiles = false,
 }: {
   agentId: string;
   agentName: string;
   threadId: string;
   uiMode: UiMode;
+  acceptsFiles?: boolean;
 }) {
   const token = useAccessToken();
-  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  // Sent for every agent, used by the backend only for the ones whose AgentCore
+  // runtime validates JWTs itself — the proxy reads the catalog, not this header,
+  // to decide. Kept unconditional so the client never has to know an agent's
+  // inbound auth, which is a deployment property that can change under it.
+  const agentToken = useAgentToken();
+  const headers: Record<string, string> = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(agentToken ? { "X-Agent-Authorization": `Bearer ${agentToken}` } : {}),
+  };
 
   useEffect(() => {
     upsertThread({
@@ -133,12 +198,53 @@ export function AgentChat({
   }, [threadId, agentId, agentName]);
 
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
   const isA2ui = uiMode !== "static";
+
+  // The composer answers any HITL card still awaiting a response before it sends,
+  // so chatting instead of clicking cannot ship a dangling tool call. Memoised
+  // because the slot value is a component type — a new one each render remounts
+  // the input and drops what the user has typed.
+  const chatInput = useMemo(() => createHitlAwareInput(agentId), [agentId]);
+
+  // Fires for every CopilotKit error under this provider (this AgentChat owns its
+  // own provider instance, so it is already scoped to this one agent): a
+  // protocol-level RUN_ERROR, a failed runtime connection, the proxy's 503 for an
+  // expired `aws login` session. Without a handler CopilotKit only console.errors
+  // these, which is why a broken run read as the agent saying nothing.
+  const onError = useCallback(({ error, code }: { error: Error; code: string }) => {
+    setRunError(explainRunError(code, error.message));
+  }, []);
+
+  // Attachments are per-agent because an unusable paperclip is worse than none:
+  // an agent whose prompt never mentions images would accept a file, drop it in
+  // the adapter, and answer as if nothing was sent. `accepts_files` is the
+  // catalog's answer to "can this agent do anything with a file?", set in /admin
+  // exactly like ui_mode — so this stays a catalog lookup, not an agent-id branch.
+  //
+  // Images only, and the accept list is not cosmetic: the Strands adapter maps a
+  // MIME type to a Bedrock image format against exactly {png, jpeg, gif, webp}
+  // and silently drops anything else, so a PDF here would vanish without a word.
+  const attachments = useMemo(
+    () =>
+      acceptsFiles
+        ? {
+            enabled: true,
+            accept: ACCEPTED_IMAGE_TYPES,
+            maxSize: 12 * 1024 * 1024, // pre-downscale ceiling; see lib/screenshots
+            onUpload: prepareScreenshot,
+            onUploadFailed: ({ file, message }: { file: File; message: string }) =>
+              setRunError(`${file.name}: ${message}`),
+          }
+        : undefined,
+    [acceptsFiles]
+  );
 
   return (
     <CopilotKitProvider
       runtimeUrl="/api/copilotkit"
       headers={headers}
+      onError={onError}
       // a2ui mode: mount the rich catalog (basic + Mermaid/Chart/Markdown/Html)
       // and send its component schemas to the agent so the LLM knows what it can
       // emit. static mode passes nothing, so the A2UI renderer stays out.
@@ -148,29 +254,42 @@ export function AgentChat({
           so both live under one provider. It opens by itself when a draft
           arrives — there is no per-agent condition on mounting it. */}
       <DocumentCanvasProvider>
-        <FallbackRender />
-        {isA2ui ? null : <CardCatalog />}
-        <HumanInTheLoop agentId={agentId} />
-        <ThreadTitleTracker agentId={agentId} threadId={threadId} />
-        <div className="chat-body">
-          <div className="chat-region">
-            <div className="chat-toolbar">
-              <span />
-              <button
-                className="ghost-btn"
-                onClick={() => setInspectorOpen((open) => !open)}
-                title="Inspect the live AG-UI state and message stream"
-              >
-                {inspectorOpen ? "Hide inspector" : "Inspect state"}
-              </button>
+        <PendingHitlProvider>
+          <FallbackRender />
+          {isA2ui ? null : <CardCatalog />}
+          <HumanInTheLoop agentId={agentId} />
+          <ThreadTitleTracker agentId={agentId} threadId={threadId} />
+          <div className="chat-body">
+            <div className="chat-region">
+              <div className="chat-toolbar">
+                <span />
+                <button
+                  className="ghost-btn"
+                  onClick={() => setInspectorOpen((open) => !open)}
+                  title="Inspect the live AG-UI state and message stream"
+                >
+                  {inspectorOpen ? "Hide inspector" : "Inspect state"}
+                </button>
+              </div>
+              {runError ? (
+                <RunErrorBanner message={runError} onDismiss={() => setRunError(null)} />
+              ) : null}
+              {/* Renders only for an agent that publishes `state.pipeline`. */}
+              <RunTimeline agentId={agentId} />
+              <div className="chat-host">
+                <CopilotChat
+                  key={threadId}
+                  agentId={agentId}
+                  threadId={threadId}
+                  input={chatInput}
+                  attachments={attachments}
+                />
+              </div>
             </div>
-            <div className="chat-host">
-              <CopilotChat key={threadId} agentId={agentId} threadId={threadId} />
-            </div>
+            <DocumentCanvasPanel />
+            {inspectorOpen ? <EventInspector agentId={agentId} /> : null}
           </div>
-          <DocumentCanvasPanel />
-          {inspectorOpen ? <EventInspector agentId={agentId} /> : null}
-        </div>
+        </PendingHitlProvider>
       </DocumentCanvasProvider>
     </CopilotKitProvider>
   );
