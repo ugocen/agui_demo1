@@ -143,9 +143,9 @@ One log group per runtime endpoint, created by AgentCore on first invocation:
 ```
 /aws/bedrock-agentcore/runtimes/<runtimeId>-DEFAULT
   ├─ [runtime-logs] <UUID>   ← stdout/stderr: tracebacks, the RuntimeError above
-  ├─ otel-rt-logs            ← ADOT structured logs
-  └─ spans                   ← OTEL spans (runtimes created from 2026-07-20 on;
-                               older ones deliver to the shared aws/spans group)
+  ├─ otel-rt-logs            ← ADOT structured logs (GenAI events, with trace ids)
+  └─ spans                   ← OTEL spans, if the runtime uses the per-agent
+                               destination; otherwise they go to shared aws/spans
 ```
 
 The runtime id is `<agent-name with - replaced by _>-<suffix AgentCore generates>`,
@@ -163,8 +163,24 @@ created empty and stay empty until all of this is true:
   the symptom was exactly that: `otel-rt-logs` present, never written to;
 * **CloudWatch Transaction Search** is enabled once per account+region;
 * the execution role grants `logs:PutResourcePolicy` on
-  `/aws/bedrock-agentcore/runtimes/*`, which is what lets X-Ray deliver spans to
-  the agent's own log group. See `Phase0/aws-setup/execution-role-policy.json`.
+  `/aws/bedrock-agentcore/runtimes/*`. See
+  `Phase0/aws-setup/execution-role-policy.json`.
+
+That last one is the easiest to get wrong, because logs and spans fail
+*separately*. Enabling Transaction Search writes one account-level resource
+policy, `TransactionSearchXRayAccess`, and it names exactly two log groups:
+`aws/spans` and `/aws/application-signals/data`. A runtime on the per-agent
+destination writes to neither, so X-Ray has nowhere to put its spans — and
+AgentCore can only add the missing per-log-group policy if the execution role
+allows `logs:PutResourcePolicy`. Verified on 2026-07-22 with `A2UI_demo`: ADOT
+was running and `otel-rt-logs` filled with GenAI records carrying trace ids,
+while the `spans` stream stayed at 0 bytes and no exporter error appeared
+anywhere. Nothing tells you; the spans are simply absent.
+
+If that permission cannot be granted — a plausible outcome in the enterprise
+account — set `UNIFIED_TRACES_DESTINATION_ENABLED=false` on the runtime instead.
+Spans then go to the shared `aws/spans` group, which the account-level policy
+above already permits, and no IAM change is needed.
 
 For the enterprise copy this matters more than it does on Bedrock: the model call
 goes to the gateway, so there are no `AWS/Bedrock` metrics and no model-invocation
