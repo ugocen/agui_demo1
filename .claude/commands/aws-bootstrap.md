@@ -11,7 +11,8 @@ Set up the AWS IAM prerequisites for Phase 0:
    `agui-demo1-runtime-exec`, CloudWatch Logs read).
 3. Create the `agui-demo1-runtime-exec` role with
    `Phase0/aws-setup/execution-role-trust.json` and attach
-   `Phase0/aws-setup/execution-role-policy.json`.
+   `Phase0/aws-setup/execution-role-policy.json`. Traces additionally need
+   CloudWatch Transaction Search enabled once per account+region.
 4. Fill `AWS_REGION`, `DEPLOY_BUCKET`, `EXECUTION_ROLE_ARN`, and
    `BEDROCK_MODEL_ID` in `Phase0/.env`.
 

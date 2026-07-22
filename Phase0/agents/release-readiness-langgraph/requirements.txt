@@ -6,3 +6,11 @@ fastapi==0.139.0
 uvicorn==0.51.0
 boto3==1.43.46
 python-dotenv==1.2.2
+
+# Never imported by this agent's code: the runtime entry point wraps agent.py
+# with opentelemetry-instrument (Phase0/scripts/deploy_agent.py), which needs
+# this package present in the zip or the runtime fails to start.
+aws-opentelemetry-distro==0.18.0
+# ADOT discovers this at startup and instruments the graph itself. Without it
+# the traces show the model and HTTP calls but not the LangGraph nodes.
+opentelemetry-instrumentation-langchain==0.62.1

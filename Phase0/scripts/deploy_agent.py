@@ -379,7 +379,21 @@ def main() -> None:
             "codeConfiguration": {
                 "code": {"s3": {"bucket": bucket, "prefix": object_key}},
                 "runtime": "PYTHON_3_13",
-                "entryPoint": ["agent.py"],
+                # The opentelemetry-instrument prefix is what turns traces on, and
+                # it is the ONLY thing that does. AgentCore always ships stdout to
+                # the runtime's log group, so logs looked fine while spans never
+                # existed: on 2026-07-22 every runtime had an `otel-rt-logs` stream
+                # the platform had created and nothing had ever written to, and the
+                # `bedrock-agentcore` metric namespace was empty. "Observability is
+                # automatic on Runtime" in the docs means automatic ONCE ADOT is in
+                # the zip and the entry point is wrapped — not on its own.
+                #
+                # This is one half of a pair. The other is aws-opentelemetry-distro
+                # in each agent's requirements.txt: without it the runtime cannot
+                # resolve the executable and never goes healthy, which surfaces as
+                # an unhelpful initialization timeout. Deploying a zip built before
+                # that dependency landed will fail exactly that way — rebuild it.
+                "entryPoint": ["opentelemetry-instrument", "agent.py"],
             }
         },
         "roleArn": role_arn,

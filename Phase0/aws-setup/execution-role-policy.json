@@ -25,12 +25,20 @@
       "Resource": "*"
     },
     {
+      "Sid": "SpanDeliveryToAgentLogGroup",
+      "Effect": "Allow",
+      "Action": ["logs:PutResourcePolicy"],
+      "Resource": "arn:aws:logs:*:*:log-group:/aws/bedrock-agentcore/runtimes/*"
+    },
+    {
       "Sid": "Observability",
       "Effect": "Allow",
       "Action": [
         "cloudwatch:PutMetricData",
         "xray:PutTraceSegments",
-        "xray:PutTelemetryRecords"
+        "xray:PutTelemetryRecords",
+        "xray:GetSamplingRules",
+        "xray:GetSamplingTargets"
       ],
       "Resource": "*"
     }

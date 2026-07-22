@@ -22,7 +22,10 @@ description: One-time AWS bootstrap — IAM setup for Phase 0
   `Phase0/aws-setup/execution-role-trust.json` (trusts
   `bedrock-agentcore.amazonaws.com`) and attach
   `Phase0/aws-setup/execution-role-policy.json` (Bedrock invoke/converse,
-  CloudWatch Logs, X-Ray).
+  CloudWatch Logs, X-Ray, and `logs:PutResourcePolicy` so X-Ray can deliver
+  spans to the agent's own log group). Traces also need CloudWatch Transaction
+  Search enabled once per account+region — that is a console action, not part
+  of this role.
 
 ### 4. Verify
 - `aws sts get-caller-identity` under the deployment user's credentials.
