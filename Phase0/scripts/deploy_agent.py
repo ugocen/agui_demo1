@@ -102,8 +102,16 @@ def build_env_vars(env: dict, control, existing_runtime_id: str | None) -> dict:
     return merged
 
 
-def load_env() -> dict:
+def load_env(required: bool = True) -> dict:
+    """Parse the .env next to this script's parent into a plain dict.
+
+    `required=False` is for invoke_agentcore.py, which shares this: it only wants
+    AWS_REGION and CATALOG_DB_PATH, both optional, and must stay runnable in a
+    checkout that has no .env at all.
+    """
     if not ENV_PATH.exists():
+        if not required:
+            return {}
         sys.exit(f"FAIL: {ENV_PATH} not found, copy .env.example to .env and fill it")
     values = {}
     for line in ENV_PATH.read_text().splitlines():
@@ -141,6 +149,27 @@ def runtime_name_for(agent_name: str) -> str:
     return agent_name.replace("-", "_")
 
 
+def list_runtimes(control) -> list[dict]:
+    """Every agent runtime in the region, all pages.
+
+    One place, so that a lookup and the "these are the names that exist" text in
+    its failure message are always built from the same call. invoke_agentcore.py
+    used to search live runtimes but print a hardcoded list of names it had never
+    searched, and so could deny a name while listing it as known.
+    """
+    runtimes: list[dict] = []
+    token = None
+    while True:
+        kwargs = {"maxResults": 100}
+        if token:
+            kwargs["nextToken"] = token
+        page = control.list_agent_runtimes(**kwargs)
+        runtimes.extend(page.get("agentRuntimes", []))
+        token = page.get("nextToken")
+        if not token:
+            return runtimes
+
+
 def resolve_target(control, target: str):
     """Find the runtime an explicit --runtime flag names, by runtime name or ARN.
 
@@ -151,37 +180,23 @@ def resolve_target(control, target: str):
     A2UI_demo). The default path is the catalog-first resolution in main(); this
     only runs when --runtime is given, and exits if the name/ARN is not found.
     """
-    wanted_arn = target if target.startswith("arn:") else ""
-    wanted_name = "" if wanted_arn else target
-    token = None
-    while True:
-        kwargs = {"maxResults": 100}
-        if token:
-            kwargs["nextToken"] = token
-        page = control.list_agent_runtimes(**kwargs)
-        for runtime in page.get("agentRuntimes", []):
-            if wanted_arn and runtime.get("agentRuntimeArn") == wanted_arn:
-                return runtime
-            if wanted_name and runtime.get("agentRuntimeName") == wanted_name:
-                return runtime
-        token = page.get("nextToken")
-        if not token:
-            sys.exit(f"FAIL: --runtime={target} not found. Deploy without --runtime to create a new one.")
+    key = "agentRuntimeArn" if target.startswith("arn:") else "agentRuntimeName"
+    runtimes = list_runtimes(control)
+    match = next((runtime for runtime in runtimes if runtime.get(key) == target), None)
+    if match is None:
+        known = ", ".join(sorted(r.get("agentRuntimeName", "") for r in runtimes)) or "(none)"
+        sys.exit(
+            f"FAIL: --runtime={target} not found. Runtimes in this region: {known}. "
+            "Deploy without --runtime to create a new one."
+        )
+    return match
 
 
 def find_existing_runtime(control, runtime_name: str):
-    token = None
-    while True:
-        kwargs = {"maxResults": 100}
-        if token:
-            kwargs["nextToken"] = token
-        page = control.list_agent_runtimes(**kwargs)
-        for runtime in page.get("agentRuntimes", []):
-            if runtime.get("agentRuntimeName") == runtime_name:
-                return runtime
-        token = page.get("nextToken")
-        if not token:
-            return None
+    return next(
+        (r for r in list_runtimes(control) if r.get("agentRuntimeName") == runtime_name),
+        None,
+    )
 
 
 def resolve_catalog_target(env: dict, agent_name: str, derived_name: str) -> dict | None:
@@ -195,6 +210,12 @@ def resolve_catalog_target(env: dict, agent_name: str, derived_name: str) -> dic
     agent that only ever existed by convention). Also picks up a duplicate row
     pointing at the name-derived runtime so a stray auto-registration is called
     out instead of silently coexisting with the real entry.
+
+    `agent_name` falls back to itself when it is not an agent directory name, so
+    invoke_agentcore.py — which shares this and must resolve identically or it
+    probes a runtime other than the one deployed to — can also pass a catalog
+    agent id ('a2uidemo') straight through. main() checks the allowlist before
+    calling this, so that fallback never changes a deploy.
     """
     configured = env.get("CATALOG_DB_PATH", "").strip()
     db_path = Path(configured).expanduser() if configured else DEFAULT_CATALOG_DB
@@ -209,7 +230,8 @@ def resolve_catalog_target(env: dict, agent_name: str, derived_name: str) -> dic
         return None
     try:
         conn.row_factory = sqlite3.Row
-        row = conn.execute(query.format("agent_id"), (CATALOG_AGENT_IDS[agent_name],)).fetchone()
+        agent_id = CATALOG_AGENT_IDS.get(agent_name, agent_name)
+        row = conn.execute(query.format("agent_id"), (agent_id,)).fetchone()
         if row is None:
             row = conn.execute(query.format("runtime_name"), (derived_name,)).fetchone()
         if row is None:
