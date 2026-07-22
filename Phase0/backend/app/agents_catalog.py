@@ -105,6 +105,7 @@ async def list_agents(
             "capability": "agui",
             "runtime_arn": e.runtime_arn,
             "ui_mode": e.ui_mode,
+            "accepts_files": e.accepts_files,
         }
         for e in entries
     ]

@@ -25,6 +25,8 @@ export type CatalogAgent = {
   capability: string;
   runtime_arn?: string;
   ui_mode?: UiMode;
+  /** Platform-owned, set per agent in /admin: does the composer offer attachments? */
+  accepts_files?: boolean;
 };
 
 // A stable, distinct color per agent derived from its id — no hardcoded

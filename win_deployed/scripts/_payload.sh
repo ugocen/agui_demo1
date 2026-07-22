@@ -24,6 +24,7 @@ AGENT_DIRS=(
   bug-report-strands
   a2ui-demo-strands
   press-release-strands
+  jira-story-strands
 )
 
 # Files copied verbatim into win_deployed/frontend/

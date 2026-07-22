@@ -58,6 +58,9 @@ CATALOG_AGENT_IDS = {
     "bug-report-strands": "bugreport",
     "a2ui-demo-strands": "a2uidemo",
     "press-release-strands": "pressrelease",
+    # Deployed after the convention existed: the runtime is named
+    # jira_story_strands, whose slug is the directory name, so it maps to itself.
+    "jira-story-strands": "jira-story-strands",
 }
 
 READY_TIMEOUT_SECONDS = 300

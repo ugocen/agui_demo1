@@ -305,6 +305,143 @@ function EditableForm({
   );
 }
 
+// 6) request_design_context (Jira Story) → { action: "attach" | "skip" }
+//
+// This card asks for screenshots but cannot RECEIVE them, and that is a protocol
+// fact rather than a shortcut. An AG-UI `ToolMessage.content` is typed `str`, and
+// the Strands adapter turns a tool result into exactly one `{"text": …}` block
+// inside a `toolResult` — there is no image branch on that path. Base64 returned
+// through `respond()` would reach the model as literal text: enormous, and not an
+// image. Image bytes only ever reach the model as multimodal content on a USER
+// message, so the working flow is to hand the turn back and let the user attach
+// in the composer. The agent's prompt knows to stop and wait after "attach".
+function DesignContextRequestCard({
+  status,
+  respond,
+  args,
+}: {
+  status: string;
+  respond?: Respond;
+  args: { reason?: string };
+}) {
+  const done = isDone(status);
+  return (
+    <div style={box}>
+      <strong>Screenshots would sharpen this</strong>
+      <div style={{ marginTop: 4 }}>
+        {args.reason ||
+          "Seeing the screen shows the empty state, the exact message text, the columns and the role-specific controls — the details acceptance criteria are usually missing."}
+      </div>
+      <div style={{ marginTop: 8, fontSize: 13, color: "#666" }}>
+        Attach the current screen and the expected design with the paperclip in the
+        message box, then send. PNG, JPEG, GIF or WEBP.
+      </div>
+      <div style={row}>
+        <button style={btn} disabled={done || !respond} onClick={() => respond?.({ action: "attach" })}>
+          I&apos;ll attach them
+        </button>
+        <button style={btn} disabled={done || !respond} onClick={() => respond?.({ action: "skip" })}>
+          Skip — use the defaults
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type Flag = { token?: string; guess?: string; why?: string };
+type Decision = { question?: string; recommended_default?: string; context?: string };
+
+// 7) request_clarification (Jira Story) → { answers: Record<string, string> }
+//
+// Two kinds of question share one card because they share one shape: something
+// the agent could not decide, plus its best suggestion. Transcription flags are
+// tokens it thinks it mis-heard from dictation; business decisions are the ones
+// no project default covers. Both arrive pre-filled with the suggestion, so the
+// fast path is a single click on Continue.
+function ClarificationCard({
+  status,
+  respond,
+  args,
+}: {
+  status: string;
+  respond?: Respond;
+  args: { flags?: Flag[]; decisions?: Decision[] };
+}) {
+  const flags = args.flags ?? [];
+  const decisions = args.decisions ?? [];
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const edited = useRef<Set<string>>(new Set());
+  const done = isDone(status);
+
+  // Same streaming-args discipline as EditableForm: the suggestions arrive after
+  // the first render, so they are mirrored in an effect keyed on the serialized
+  // args and never clobber something the user has already typed.
+  const argsKey = JSON.stringify(args);
+  useEffect(() => {
+    setAnswers((prev) => {
+      const next = { ...prev };
+      for (const flag of flags) {
+        const key = flag.token ?? "";
+        if (key && !edited.current.has(key)) next[key] = flag.guess ?? "";
+      }
+      for (const decision of decisions) {
+        const key = decision.question ?? "";
+        if (key && !edited.current.has(key)) next[key] = decision.recommended_default ?? "";
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [argsKey]);
+
+  const set = (key: string, value: string) => {
+    edited.current.add(key);
+    setAnswers((prev) => ({ ...prev, [key]: value }));
+  };
+
+  if (flags.length === 0 && decisions.length === 0) {
+    return <div style={box}>Preparing questions…</div>;
+  }
+
+  return (
+    <div style={box}>
+      <strong>A few things I could not decide</strong>
+      {flags.map((flag, index) => (
+        <div key={`flag-${flag.token ?? index}`} style={{ marginTop: 10 }}>
+          <label style={{ fontSize: 12, color: "#666" }}>
+            Heard <code>{flag.token}</code>
+            {flag.why ? ` — ${flag.why}` : ""}
+          </label>
+          <input
+            style={field}
+            value={answers[flag.token ?? ""] ?? ""}
+            disabled={done}
+            onChange={(event) => set(flag.token ?? "", event.target.value)}
+          />
+        </div>
+      ))}
+      {decisions.map((decision, index) => (
+        <div key={`decision-${decision.question ?? index}`} style={{ marginTop: 10 }}>
+          <label style={{ fontSize: 12, color: "#666" }}>{decision.question}</label>
+          {decision.context ? (
+            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{decision.context}</div>
+          ) : null}
+          <input
+            style={field}
+            value={answers[decision.question ?? ""] ?? ""}
+            disabled={done}
+            onChange={(event) => set(decision.question ?? "", event.target.value)}
+          />
+        </div>
+      ))}
+      <div style={row}>
+        <button style={btn} disabled={done || !respond} onClick={() => respond?.({ answers })}>
+          Continue
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Registers every HITL client-proxy tool. Render inside <CopilotKitProvider>.
  */
@@ -429,6 +566,71 @@ export function HumanInTheLoop({ agentId }: { agentId: string }) {
             { key: "boilerplate", label: "Boilerplate", multiline: true },
             { key: "contact", label: "Contact" },
           ]}
+        />
+      ),
+  });
+
+  // 6) Jira Story — ask for screenshots of the current screen and expected design
+  useHumanInTheLoop({
+    name: "request_design_context",
+    description:
+      "Ask the user to attach screenshots of the current screen and the expected design, or to skip. " +
+      "Returns {action: 'attach'} — reply with one line asking them to attach and send, then STOP this turn; " +
+      "the images arrive in their next message — or {action: 'skip'} to continue with the standardized defaults.",
+    parameters: z.object({
+      reason: z
+        .string()
+        .describe("One line on what seeing the screen would let you write more precisely"),
+    }),
+    render: (p) =>
+      hitl(
+        p.toolCallId,
+        p.respond as Respond,
+        <DesignContextRequestCard
+          status={p.status}
+          respond={p.respond as Respond}
+          args={p.args as { reason?: string }}
+        />
+      ),
+  });
+
+  // 7) Jira Story — resolve mis-heard tokens and blocking business decisions
+  useHumanInTheLoop({
+    name: "request_clarification",
+    description:
+      "Ask the user to resolve mis-heard tokens and blocking business decisions. Each item carries your " +
+      "suggestion, pre-filled. Returns {answers: {<token or question>: <the user's answer>}}. " +
+      "Never ask about anything a standardized default already covers.",
+    parameters: z.object({
+      flags: z
+        .array(
+          z.object({
+            token: z.string().describe("The token as you heard it — this is the answer key"),
+            guess: z.string().describe("Your best reading, pre-filled for the user"),
+            why: z.string().describe("Why it looks mis-heard or ambiguous"),
+          })
+        )
+        .describe("Transcription flags. Empty array when there are none."),
+      decisions: z
+        .array(
+          z.object({
+            question: z
+              .string()
+              .describe("Answerable by a product owner in one sentence — this is the answer key"),
+            recommended_default: z.string().describe("Your suggested answer, pre-filled"),
+            context: z.string().describe("One line on why this matters"),
+          })
+        )
+        .describe("Blocking business decisions. Empty array when there are none."),
+    }),
+    render: (p) =>
+      hitl(
+        p.toolCallId,
+        p.respond as Respond,
+        <ClarificationCard
+          status={p.status}
+          respond={p.respond as Respond}
+          args={p.args as { flags?: Flag[]; decisions?: Decision[] }}
         />
       ),
   });

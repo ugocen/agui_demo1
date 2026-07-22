@@ -118,6 +118,7 @@ function AgentPageInner({ agentId }: { agentId: string }) {
           agentName={agentName}
           threadId={threadId}
           uiMode={agent.ui_mode ?? "a2ui"}
+          acceptsFiles={agent.accepts_files ?? false}
         />
       ) : null}
     </WorkspaceShell>
