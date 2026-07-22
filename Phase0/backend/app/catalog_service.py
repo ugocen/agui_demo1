@@ -108,6 +108,10 @@ async def update_entry(db: AsyncSession, agent_id: str, patch: dict) -> AgentCat
             continue
         if key == "ui_mode" and value not in UI_MODES:
             continue
+        # Booleans arrive over JSON and can be anything the caller sent; coerce so
+        # a string "false" cannot land in the column as a truthy value.
+        if key in ("enabled", "accepts_files"):
+            value = bool(value)
         setattr(entry, key, value)
     await db.commit()
     await db.refresh(entry)

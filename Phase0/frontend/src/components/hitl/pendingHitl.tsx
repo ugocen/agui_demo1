@@ -161,6 +161,20 @@ export function createHitlAwareInput(agentId: string): typeof CopilotChatInput {
         // tool result `respond()` splices in lands between the tool call and the
         // message, then let the follow-up run that `respond()` triggers carry
         // both. Submitting normally as well would send the message twice.
+        //
+        // ATTACHMENTS ON THIS PATH: `onSubmitMessage` is typed
+        // `(value: string) => void`, and the queue is drained by
+        // `consumeAttachments()` inside CopilotKit's own submit handler — which
+        // this branch deliberately does not call. So a file attached while a card
+        // is open does NOT travel with this message. It is not lost: because the
+        // framework handler never ran, the queue is untouched and its chips stay
+        // visible above the composer, and the file goes with the next message.
+        // Reaching the queue from here is not possible today — `CopilotChatView`
+        // renders it itself and passes only `onAddFile` down into the input slot
+        // (`attachments`/`onRemoveAttachment` are not part of
+        // `CopilotChatInputProps`), so closing the gap properly means overriding
+        // the chatView slot as well. Not worth that blast radius for a path where
+        // the user can simply answer the card.
         agent.addMessage({ id: crypto.randomUUID(), role: "user", content: value });
         api.resolveAll(HITL_DISMISSED);
       },

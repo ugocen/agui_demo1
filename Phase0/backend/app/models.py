@@ -20,7 +20,14 @@ def _now() -> datetime:
 
 # The only fields the admin screen may change. Everything else on a catalog entry
 # is sourced from AgentCore (ARN, name, protocol, status, version) and is read-only.
-EDITABLE_FIELDS = {"display_name", "description", "ui_mode", "enabled", "required_role"}
+EDITABLE_FIELDS = {
+    "display_name",
+    "description",
+    "ui_mode",
+    "enabled",
+    "required_role",
+    "accepts_files",
+}
 UI_MODES = {"static", "a2ui"}
 
 
@@ -29,7 +36,7 @@ class AgentCatalogEntry(Base):
 
     Two kinds of columns:
       * platform-owned (editable in the admin screen) — display_name, description,
-        ui_mode, enabled, required_role, and the routing slug agent_id.
+        ui_mode, enabled, required_role, accepts_files, and the routing slug agent_id.
       * AgentCore-sourced (read-only, refreshed on sync) — runtime_arn, runtime_name,
         protocol, status, version, last_synced_at.
     """
@@ -45,6 +52,10 @@ class AgentCatalogEntry(Base):
     ui_mode: Mapped[str] = mapped_column(String(16), default="a2ui")  # 'static' | 'a2ui'
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     required_role: Mapped[str] = mapped_column(String(64), default="")
+    # Whether the composer offers file attachments for this agent. Off by default:
+    # an agent whose prompt never mentions images gains nothing from a paperclip,
+    # and an attachment it silently ignores reads to the user as a broken feature.
+    accepts_files: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     # --- AgentCore-sourced (read-only) ---
     runtime_arn: Mapped[str] = mapped_column(String(512), unique=True, index=True)
@@ -66,6 +77,7 @@ class AgentCatalogEntry(Base):
             "ui_mode": self.ui_mode,
             "enabled": self.enabled,
             "required_role": self.required_role,
+            "accepts_files": self.accepts_files,
             # AgentCore-sourced (read-only in the UI)
             "runtime_arn": self.runtime_arn,
             "runtime_name": self.runtime_name,

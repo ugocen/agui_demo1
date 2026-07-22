@@ -666,6 +666,67 @@ a {
   padding: 0 2px;
 }
 
+/* Pipeline progress strip. Rendered only for agents that publish a
+   `state.pipeline`; wraps rather than scrolls, because a step that has run off
+   the edge is a step the user cannot see. */
+.run-timeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 8px 20px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.run-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.run-step-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  flex: none;
+}
+
+.run-step.done {
+  color: var(--text-secondary);
+}
+
+.run-step.done .run-step-dot {
+  background: #1e8449;
+}
+
+.run-step.running {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.run-step.running .run-step-dot {
+  background: var(--accent);
+  animation: run-step-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes run-step-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-step.running .run-step-dot {
+    animation: none;
+  }
+}
+
 .canvas {
   width: 420px;
   min-width: 420px;
@@ -788,6 +849,44 @@ a {
   padding: 14px;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--foreground);
+}
+
+/* Raw artifact view — text whose value is its exact bytes (Jira markup, a
+   config file). Deliberately `white-space: pre` rather than pre-wrap: wrapping
+   would desynchronise the line-number gutter from the lines it numbers, so the
+   container scrolls horizontally instead and the gutter sticks. */
+.canvas-raw {
+  display: flex;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  overflow: auto;
+}
+
+.canvas-raw-gutter,
+.canvas-raw-text {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0;
+  white-space: pre;
+}
+
+.canvas-raw-gutter {
+  position: sticky;
+  left: 0;
+  padding: 14px 8px 14px 12px;
+  text-align: right;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+.canvas-raw-text {
+  padding: 14px;
   color: var(--foreground);
 }
 

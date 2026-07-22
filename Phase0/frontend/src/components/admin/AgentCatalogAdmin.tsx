@@ -12,6 +12,7 @@ type CatalogEntry = {
   description: string;
   ui_mode: UiMode;
   enabled: boolean;
+  accepts_files: boolean;
   required_role: string;
   // AgentCore-sourced, read-only
   runtime_arn: string;
@@ -24,7 +25,7 @@ type CatalogEntry = {
 
 type Editable = Pick<
   CatalogEntry,
-  "display_name" | "description" | "ui_mode" | "enabled" | "required_role"
+  "display_name" | "description" | "ui_mode" | "enabled" | "required_role" | "accepts_files"
 >;
 
 const EDITABLE_KEYS = [
@@ -33,6 +34,7 @@ const EDITABLE_KEYS = [
   "ui_mode",
   "enabled",
   "required_role",
+  "accepts_files",
 ] as const;
 
 const UI_MODE_HELP: Record<UiMode, string> = {
@@ -185,6 +187,9 @@ export function AgentCatalogAdmin() {
                 <th style={cell}>Description</th>
                 <th style={cell}>UI mode</th>
                 <th style={cell}>Role</th>
+                <th style={cell} title="Offer file attachments in this agent's composer">
+                  Files
+                </th>
                 <th style={cell}>On</th>
                 <th style={roCell}>Runtime (AgentCore)</th>
                 <th style={roCell}>Protocol</th>
@@ -241,6 +246,16 @@ export function AgentCatalogAdmin() {
                         placeholder="—"
                         value={draft.required_role ?? entry.required_role}
                         onChange={(event) => setDraft(entry.agent_id, { required_role: event.target.value })}
+                      />
+                    </td>
+                    <td style={{ ...cell, textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        title="Show the attachment button. Only useful for an agent whose prompt reads images — a file an agent ignores looks broken to the user."
+                        checked={draft.accepts_files ?? entry.accepts_files}
+                        onChange={(event) =>
+                          setDraft(entry.agent_id, { accepts_files: event.target.checked })
+                        }
                       />
                     </td>
                     <td style={{ ...cell, textAlign: "center" }}>

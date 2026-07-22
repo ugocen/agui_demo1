@@ -11,12 +11,14 @@ import "@copilotkit/react-core/v2/styles.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { updateThreadTitle, upsertThread } from "@/lib/threads";
+import { ACCEPTED_IMAGE_TYPES, prepareScreenshot } from "@/lib/screenshots";
 import { useAccessToken } from "@/components/AuthGate";
 import { richCatalog } from "@/components/a2ui/richCatalog";
 import { DocumentCanvasPanel, DocumentCanvasProvider } from "@/components/canvas/DocumentCanvas";
 import { CardCatalog } from "@/components/cards/cardCatalog";
 import { HumanInTheLoop } from "@/components/hitl/HumanInTheLoop";
 import { PendingHitlProvider, createHitlAwareInput } from "@/components/hitl/pendingHitl";
+import { RunTimeline } from "@/components/pipeline/RunTimeline";
 import type { UiMode } from "@/components/workspace/WorkspaceShell";
 
 // Generic chat surface for ANY agent. Nothing here branches on an agent id: the
@@ -136,11 +138,13 @@ export function AgentChat({
   agentName,
   threadId,
   uiMode,
+  acceptsFiles = false,
 }: {
   agentId: string;
   agentName: string;
   threadId: string;
   uiMode: UiMode;
+  acceptsFiles?: boolean;
 }) {
   const token = useAccessToken();
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -173,6 +177,30 @@ export function AgentChat({
   const onError = useCallback(({ error, code }: { error: Error; code: string }) => {
     setRunError(`${code}: ${error.message}`);
   }, []);
+
+  // Attachments are per-agent because an unusable paperclip is worse than none:
+  // an agent whose prompt never mentions images would accept a file, drop it in
+  // the adapter, and answer as if nothing was sent. `accepts_files` is the
+  // catalog's answer to "can this agent do anything with a file?", set in /admin
+  // exactly like ui_mode — so this stays a catalog lookup, not an agent-id branch.
+  //
+  // Images only, and the accept list is not cosmetic: the Strands adapter maps a
+  // MIME type to a Bedrock image format against exactly {png, jpeg, gif, webp}
+  // and silently drops anything else, so a PDF here would vanish without a word.
+  const attachments = useMemo(
+    () =>
+      acceptsFiles
+        ? {
+            enabled: true,
+            accept: ACCEPTED_IMAGE_TYPES,
+            maxSize: 12 * 1024 * 1024, // pre-downscale ceiling; see lib/screenshots
+            onUpload: prepareScreenshot,
+            onUploadFailed: ({ file, message }: { file: File; message: string }) =>
+              setRunError(`${file.name}: ${message}`),
+          }
+        : undefined,
+    [acceptsFiles]
+  );
 
   return (
     <CopilotKitProvider
@@ -208,12 +236,15 @@ export function AgentChat({
               {runError ? (
                 <RunErrorBanner message={runError} onDismiss={() => setRunError(null)} />
               ) : null}
+              {/* Renders only for an agent that publishes `state.pipeline`. */}
+              <RunTimeline agentId={agentId} />
               <div className="chat-host">
                 <CopilotChat
                   key={threadId}
                   agentId={agentId}
                   threadId={threadId}
                   input={chatInput}
+                  attachments={attachments}
                 />
               </div>
             </div>
