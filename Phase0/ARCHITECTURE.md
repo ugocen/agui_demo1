@@ -67,7 +67,8 @@ Browser (CopilotChat)
   → POST /api/copilotkit/agent/{id}/run        (local, CopilotKit runtime)
     → HttpAgent → POST /api/agui/{id}           (local, FastAPI proxy)
       → require_user()  validates identity      (iam: skip / entra: Entra JWT)
-      → SigV4-sign the request                   (always, runtimes are IAM-auth)
+      → sign per catalog `inbound_auth`:         (iam: SigV4 / jwt: the caller's
+        SigV4, or forward the caller's token      own Entra token as the bearer)
       → POST https://bedrock-agentcore.us-east-1.amazonaws.com
              /runtimes/{escaped-arn}/invocations?qualifier=DEFAULT   (REMOTE)
         → AgentCore microVM runs agent.py
@@ -106,14 +107,26 @@ Auth has **two independent layers**, which is the key architectural point:
      backend's view of identity + roles, which the SPA mirrors for UI only.
   - `REQUIRED_ROLE` (empty = identity-only) gates use of the AG-UI proxy.
 
-**Layer B — upstream to AgentCore (backend ↔ runtime).** Independent of Layer A.
-- The 3 runtimes are deployed with **IAM authorizer**, so the backend **always**
-  SigV4-signs the invocation with its AWS credentials — even in entra mode. In
-  entra mode the backend has already authenticated the user (Layer A) and now
-  acts as the trusted caller (the "backend exchanges the token" pattern, doc 05).
+**Layer B — upstream to AgentCore (backend ↔ runtime).** Independent of Layer A,
+and decided **per agent** by the catalog's `inbound_auth` — an AgentCore-sourced,
+read-only column synced from each runtime's `authorizerConfiguration`, never a
+global setting.
+- `inbound_auth=iam` (every runtime except whoami): deployed with the **IAM
+  authorizer**, so the backend SigV4-signs the invocation with its AWS
+  credentials — even in entra mode. The backend has already authenticated the
+  user (Layer A) and now acts as the trusted caller (the "backend exchanges the
+  token" pattern, doc 05). The agent never learns who asked.
+- `inbound_auth=jwt` (`whoami-strands`): deployed with a **customJWTAuthorizer**
+  pointed at the tenant's OIDC discovery document. No SigV4 at all — the proxy
+  forwards the caller's own tenant-issued Entra token (sent by the SPA as
+  `X-Agent-Authorization`, because the platform's own bearer is a Graph token no
+  OIDC authorizer can validate), AgentCore validates it, and the agent reads the
+  claims. Full write-up: `Phase0/docs/IDENTITY-AWARE-AGENTS.md`.
 
-So Entra secures *who may use the platform*; SigV4 secures *the platform calling
-AgentCore*. They do not depend on each other.
+So Entra secures *who may use the platform*, and Layer B secures *the platform
+calling AgentCore* — with SigV4, or with the user's own token where an agent is
+meant to know them. They do not depend on each other: a JWT agent still goes
+through Layer A's `require_platform_access` like every other route.
 
 Entra connection facts (remote):
 - Tenant `98c18fba-5be5-4229-a075-90da42d85df3`

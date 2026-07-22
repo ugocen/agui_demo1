@@ -2,11 +2,37 @@
 
 POST /api/agui/{agent_id} looks up the agent in the DB catalog (populated from
 AgentCore, never from env), forwards the AG-UI request to that runtime's
-AgentCore invocation endpoint, and pipes the SSE stream back unchanged. The
-upstream call is always SigV4-signed with the host's AWS credentials; in entra
-mode the caller's Entra token has already been validated at the platform
-boundary, so the backend calls AgentCore as the trusted caller. httpx streaming,
-no buffering.
+AgentCore invocation endpoint, and pipes the SSE stream back unchanged. httpx
+streaming, no buffering.
+
+HOW THE UPSTREAM CALL IS AUTHENTICATED
+--------------------------------------
+Per the catalog entry's `inbound_auth`, which is synced from the runtime's own
+authorizerConfiguration — never guessed here, because guessing wrong means every
+request to that agent is signed the wrong way:
+
+* **iam** (all the original agents) — SigV4 with the host's AWS credentials. The
+  caller's Entra token was validated at the platform boundary and stops there;
+  the backend calls AgentCore as the trusted caller, and the agent never learns
+  who asked.
+* **jwt** (whoami-strands) — no SigV4 at all. The caller's own Entra token is
+  forwarded as the bearer and AgentCore validates it against the tenant's OIDC
+  discovery document before the agent's container is reached. That token is NOT
+  the platform's bearer: the SPA sends the platform a Microsoft Graph access
+  token, which no OIDC authorizer can validate (see app/auth.py), so the browser
+  sends a second, tenant-issued token in `X-Agent-Authorization` and this is the
+  only thing that goes upstream.
+
+Layer B (backend -> AgentCore) is therefore no longer "always SigV4" — it is
+"always what the runtime is configured to accept". Layer A (browser -> backend)
+is untouched: every route still goes through `require_platform_access`, so a JWT
+agent is not a way around platform sign-in.
+
+Optionally (AGENT_TOKEN_RELAY=1) the caller's tokens are also passed to the agent
+in AgentCore's custom forwardable headers, which is what lets an identity-aware
+agent work on an IAM runtime and what gives it a Graph token when no AgentCore
+Identity OBO provider is configured. Off by default: it hands a delegated user
+token to the runtime, and no other agent has any use for one.
 """
 
 import json
@@ -33,6 +59,87 @@ log = get_logger("proxy")
 
 SESSION_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
 MIN_SESSION_ID_LENGTH = 33
+
+# The browser's second token: tenant-issued (an Entra ID token by default), the
+# one an OIDC authorizer can actually verify. Sent alongside the platform's own
+# Authorization header, never instead of it.
+AGENT_TOKEN_HEADER = "X-Agent-Authorization"
+
+# AgentCore forwards headers with this prefix — and only this prefix, out of
+# everything starting with `x-amzn-` — to the agent's container. Anything else we
+# invented would be silently dropped in transit.
+ID_TOKEN_RELAY_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Custom-Id-Token"
+GRAPH_TOKEN_RELAY_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Custom-Graph-Token"
+
+
+def token_relay_enabled() -> bool:
+    return os.environ.get("AGENT_TOKEN_RELAY", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _bearer(value: str) -> str:
+    value = (value or "").strip()
+    if value.lower().startswith("bearer "):
+        return value.split(" ", 1)[1].strip()
+    return value
+
+
+def agent_token(request: Request | None) -> str:
+    """The tenant-issued token meant for AgentCore, from `X-Agent-Authorization`.
+
+    Deliberately does NOT fall back to the platform's Authorization header. That
+    header carries a Microsoft Graph access token, which AgentCore's JWT
+    authorizer rejects — a first-party resource token cannot be validated against
+    the tenant JWKS — and the resulting upstream 403 says nothing about the real
+    cause. An empty string here produces an error that names the missing header.
+    """
+    if request is None:
+        return ""
+    return _bearer(request.headers.get(AGENT_TOKEN_HEADER, ""))
+
+
+def upstream_auth_headers(
+    *,
+    agent: dict,
+    request: Request | None,
+    user: dict,
+    url: str,
+    body: bytes,
+    region: str,
+    base_headers: dict,
+) -> dict:
+    """Authenticate the AgentCore call the way this runtime expects, plus relays."""
+    headers = dict(base_headers)
+    inbound_auth = (agent.get("inbound_auth") or "iam").lower()
+
+    if token_relay_enabled():
+        # The agent's *own* view of the caller, in headers AgentCore forwards.
+        # Both are optional and independent: an agent that gets neither reports
+        # the caller as anonymous rather than failing.
+        graph_token = _bearer(user.get("token") or "")
+        if graph_token:
+            headers[GRAPH_TOKEN_RELAY_HEADER] = graph_token
+        entra_token = agent_token(request)
+        if entra_token and inbound_auth != "jwt":
+            # Under jwt the same token is already the Authorization header;
+            # relaying a second copy would only be a second thing to keep in sync.
+            headers[ID_TOKEN_RELAY_HEADER] = entra_token
+
+    if inbound_auth != "jwt":
+        return sigv4_headers(url, body, region, headers)
+
+    token = agent_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                f"agent {agent['id']} runs on a JWT-authorized AgentCore runtime and needs the "
+                f"caller's Entra token in the {AGENT_TOKEN_HEADER} header. None arrived — sign in "
+                "with Entra (AUTH_MODE=entra on the backend and the frontend); with SSO off there "
+                "is no user token to forward."
+            ),
+        )
+    headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def invocation_url(runtime_arn: str, region: str) -> str:
@@ -123,14 +230,18 @@ async def proxy_agui(
     if not region:
         raise HTTPException(status_code=500, detail="AWS_REGION is not set")
     url = invocation_url(runtime_arn, region)
-    # Runtimes are deployed with IAM auth, so the AgentCore call is always
-    # SigV4-signed regardless of the app-level auth mode. In entra mode the
-    # backend has already validated the user's Entra ID token (SSO at the platform
-    # boundary) and now acts as the trusted caller — the "backend exchanges the
-    # token and calls AgentCore with SigV4" pattern. The user's identity stays in
-    # the request context (user["user"]) but is not forwarded upstream.
-    headers = sigv4_headers(url, body, region, headers)
-    log.debug("proxy %s -> AgentCore (SigV4) %s", agent_id, url.split("?")[0])
+    # SigV4 or the caller's own bearer, per the runtime's inbound auth — see the
+    # module docstring. Layer A has already run (require_platform_access), so by
+    # here the caller is a signed-in platform user either way.
+    headers = upstream_auth_headers(
+        agent=agent, request=request, user=user, url=url, body=body, region=region, base_headers=headers
+    )
+    log.debug(
+        "proxy %s -> AgentCore (%s) %s",
+        agent_id,
+        "user JWT" if (agent.get("inbound_auth") == "jwt") else "SigV4",
+        url.split("?")[0],
+    )
 
     client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=None, write=30, pool=10))
     upstream_request = client.build_request("POST", url, content=body, headers=headers)
@@ -164,6 +275,7 @@ async def proxy_agui(
 @router.get("/api/agui/{agent_id}/health")
 async def agui_health(
     agent_id: str,
+    request: Request,
     user: dict = Depends(require_platform_access),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -213,10 +325,19 @@ async def agui_health(
     }
     url = invocation_url(runtime_arn, region)
     # This endpoint answers "is the agent up?" with a verdict, and the banner is
-    # the only place the user ever sees it — so report a local credential failure
-    # as the verdict's detail rather than raising it into an opaque fetch error.
+    # the only place the user ever sees it — so report a local credential failure,
+    # or a JWT agent with no caller token, as the verdict's detail rather than
+    # raising it into an opaque fetch error.
     try:
-        headers = sigv4_headers(url, body, region, base_headers)
+        headers = upstream_auth_headers(
+            agent=agent,
+            request=request,
+            user=user,
+            url=url,
+            body=body,
+            region=region,
+            base_headers=base_headers,
+        )
     except HTTPException as error:
         return {"agent_id": agent_id, "alive": False, "detail": str(error.detail)}
 

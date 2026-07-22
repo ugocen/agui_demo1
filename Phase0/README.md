@@ -112,7 +112,9 @@ npm run dev   # http://localhost:3000
 
 An agent can be run standalone on port 8080 (`python agent.py`) for debugging,
 but **the backend cannot be pointed at it**: `agui_proxy.py` resolves every target
-from the DB catalog entry's AgentCore `runtime_arn` and SigV4-signs the call. The
+from the DB catalog entry's AgentCore `runtime_arn` and signs the call per that
+entry's `inbound_auth` (SigV4, or the caller's Entra token for a JWT-authorized
+runtime — see `docs/IDENTITY-AWARE-AGENTS.md`). The
 `LOCAL_AGENT_URL_*` override this README used to describe no longer exists in the
 code. To exercise a local agent, post an AG-UI request straight to its
 `/invocations`, or check liveness with `curl localhost:8080/ping`.
