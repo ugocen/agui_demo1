@@ -1,0 +1,26 @@
+strands-agents==1.47.0
+ag-ui-strands==0.2.2
+bedrock-agentcore==1.18.0
+fastapi==0.139.0
+uvicorn==0.51.0
+boto3==1.43.46
+python-dotenv==1.2.2
+
+# This agent's own dependencies, all of them already transitive in every other
+# agent's lock — declared here because identity.py imports them directly.
+#   pyjwt[crypto]  decode the caller's token and verify RS256 against the tenant
+#                  JWKS (the extra is what pulls in `cryptography`; without it
+#                  PyJWT can read a token but never verify one)
+#   httpx          Microsoft Graph /me
+#   certifi        the trust store for the JWKS fetch, which PyJWT makes with
+#                  urllib (system store) rather than httpx (certifi)
+#   opentelemetry-api  the spans this agent adds on top of ADOT's automatic ones
+pyjwt[crypto]==2.13.0
+httpx==0.28.1
+certifi==2026.7.22
+opentelemetry-api==1.42.1
+
+# Never imported by this agent's code: the runtime entry point wraps agent.py
+# with opentelemetry-instrument (Phase0/scripts/deploy_agent.py), which needs
+# this package present in the zip or the runtime fails to start.
+aws-opentelemetry-distro==0.18.0

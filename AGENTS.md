@@ -30,8 +30,15 @@ the one deliberate fork — the agents — see invariants 4 and 7. Deep backgrou
 3. **Two independent auth layers.** Layer A (browser ↔ backend) is controlled
    by `AUTH_MODE` (`iam` or `entra`): in `entra` mode, identity comes from the
    Entra/Graph access token and roles are derived from AD-group membership
-   **server-side** (`app/auth.py`) — never trust the client. Layer B (backend
-   ↔ AgentCore) is **always SigV4**, independent of Layer A.
+   **server-side** (`app/auth.py`) — never trust the client. Layer B (backend ↔
+   AgentCore) is whatever the **target runtime** accepts, read from the catalog's
+   AgentCore-synced `inbound_auth` and never from a global setting: **SigV4** for
+   an IAM-authorized runtime (the default — the agent never learns who asked), or
+   the **caller's own Entra token** forwarded as the bearer for a JWT-authorized
+   one, which AgentCore validates against the tenant's OIDC discovery document
+   before the agent runs. The two layers stay independent, and a JWT agent is not
+   a way around Layer A — every route still goes through
+   `require_platform_access`. See `Phase0/docs/IDENTITY-AWARE-AGENTS.md`.
 4. **Agents deploy to AgentCore as direct-code zips, and the LLM provider is
    forked, not configured.** Each environment has exactly one provider, so the
    choice is made by *which copy you are in*, never at runtime:
@@ -109,7 +116,8 @@ cd Phase0/agents/<agent-dir> && python agent.py     # serves :8080, GET /ping
 Agents live in **two copies** (invariant 4): `Phase0/agents/<name>/` (Bedrock)
 and `cloud_deploy/agents/<name>/` (gateway). Both hold `sdlc-planner-strands`,
 `release-readiness-langgraph`, `bug-report-strands`, `a2ui-demo-strands`,
-`press-release-strands`. Each is an independent AgentCore zip (its own
+`press-release-strands`, `jira-story-strands`, `whoami-strands`. Each is an
+independent AgentCore zip (its own
 `requirements.txt` + sources at the zip root) with its own copy of
 `model_factory.py` — keep those identical *within* a copy when you edit one.
 
@@ -158,6 +166,12 @@ in `cloud_deploy/README.md` under "Logs and traces".
   `cloud_deploy/scripts/_agents.sh` and run `sync_agents.sh` so the enterprise
   copy exists too — the catalog picks it up automatically on the next AgentCore
   sync; there is no frontend or backend code to write per agent.
+- **Give an agent the caller's identity:** deploy its runtime with JWT inbound
+  auth (`scripts/deploy_agent.py --auth=jwt`, defaults per `JWT_AUTH_AGENTS`) and
+  read the token in the agent — reference implementation
+  `Phase0/agents/whoami-strands/`, full write-up in
+  `Phase0/docs/IDENTITY-AWARE-AGENTS.md`. There is no backend or frontend code to
+  add per agent: the proxy signs on the catalog's `inbound_auth`.
 - **Change the LLM provider:** `Phase0/agents/*/model_factory.py` (Bedrock) or
   `cloud_deploy/agents/*/model_factory.py` (gateway) — never both in one edit,
   and never add the other's provider to either (the gate rejects it).

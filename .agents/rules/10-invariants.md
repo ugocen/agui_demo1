@@ -12,8 +12,12 @@ See root `AGENTS.md` for detail. The non-negotiables:
 3. **Two independent auth layers.** Layer A (browser ↔ backend) via
    `AUTH_MODE` (`iam`|`entra`) — identity from the Entra/Graph token, roles
    derived from AD-group membership **server-side**, never trusted from the
-   client. Layer B (backend ↔ AgentCore) is **always SigV4**, independent of
-   Layer A.
+   client. Layer B (backend ↔ AgentCore) is whatever the **target runtime**
+   accepts, from the catalog's AgentCore-synced `inbound_auth` and never from a
+   global setting: **SigV4** for an IAM-authorized runtime (the default), or the
+   **caller's own Entra token** as the bearer for a JWT-authorized one. The layers
+   stay independent, and a JWT agent never bypasses Layer A. See
+   `Phase0/docs/IDENTITY-AWARE-AGENTS.md`.
 4. **Agents deploy to AgentCore as direct-code zips, and the LLM provider is
    forked, not configured.** Each environment has exactly one provider, chosen by
    *which copy you are in*, never at runtime:

@@ -25,6 +25,7 @@ AGENT_DIRS=(
   a2ui-demo-strands
   press-release-strands
   jira-story-strands
+  whoami-strands
 )
 
 # The ONLY files that may differ between Phase0/agents/<a>/ and

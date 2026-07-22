@@ -18,6 +18,7 @@ type CatalogEntry = {
   runtime_arn: string;
   runtime_name: string;
   protocol: string;
+  inbound_auth: string;
   status: string;
   version: string;
   last_synced_at: string | null;
@@ -193,6 +194,12 @@ export function AgentCatalogAdmin() {
                 <th style={cell}>On</th>
                 <th style={roCell}>Runtime (AgentCore)</th>
                 <th style={roCell}>Protocol</th>
+                <th
+                  style={roCell}
+                  title="How the runtime authenticates its caller, read from AgentCore: iam = the backend SigV4-signs; jwt = the caller's own Entra token is forwarded and AgentCore validates it."
+                >
+                  Inbound
+                </th>
                 <th style={roCell}>Status</th>
                 <th style={roCell}>Ver</th>
                 <th style={cell}></th>
@@ -271,6 +278,18 @@ export function AgentCatalogAdmin() {
                     </td>
                     <td style={roCell}>
                       <span className="badge badge-blue">{entry.protocol || "?"}</span>
+                    </td>
+                    <td style={roCell}>
+                      <span
+                        className={`badge ${entry.inbound_auth === "jwt" ? "badge-green" : "badge-gray"}`}
+                        title={
+                          entry.inbound_auth === "jwt"
+                            ? "The caller's Entra token is forwarded and AgentCore validates it — this agent sees who is asking."
+                            : "The backend SigV4-signs the call; the caller's identity stops at the platform boundary."
+                        }
+                      >
+                        {entry.inbound_auth || "iam"}
+                      </span>
                     </td>
                     <td style={roCell}>
                       <span className={`badge ${entry.status === "READY" ? "badge-green" : "badge-gray"}`}>

@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { updateThreadTitle, upsertThread } from "@/lib/threads";
 import { ACCEPTED_IMAGE_TYPES, prepareScreenshot } from "@/lib/screenshots";
-import { useAccessToken } from "@/components/AuthGate";
+import { useAccessToken, useAgentToken } from "@/components/AuthGate";
 import { richCatalog } from "@/components/a2ui/richCatalog";
 import { DocumentCanvasPanel, DocumentCanvasProvider } from "@/components/canvas/DocumentCanvas";
 import { CardCatalog } from "@/components/cards/cardCatalog";
@@ -177,7 +177,15 @@ export function AgentChat({
   acceptsFiles?: boolean;
 }) {
   const token = useAccessToken();
-  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  // Sent for every agent, used by the backend only for the ones whose AgentCore
+  // runtime validates JWTs itself — the proxy reads the catalog, not this header,
+  // to decide. Kept unconditional so the client never has to know an agent's
+  // inbound auth, which is a deployment property that can change under it.
+  const agentToken = useAgentToken();
+  const headers: Record<string, string> = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(agentToken ? { "X-Agent-Authorization": `Bearer ${agentToken}` } : {}),
+  };
 
   useEffect(() => {
     upsertThread({
