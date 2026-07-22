@@ -78,6 +78,15 @@ ACCEPTANCE CRITERIA
 =========================
 Write each criterion as plain prose in four lists — `given`, `when`, `then`, `but` — with NO keywords and NO asterisks. The renderer adds `*GIVEN* that`, `*WHEN*`, `*THEN*`, the indented `*AND*` continuations and `*BUT*`. The first entry of each list is the keyword line; later entries become the indented AND lines.
 
+EVERY CONTINUATION MUST READ AS A COMPLETE CLAUSE UNDER ITS OWN KEYWORD. An `AND` line in the `then` list is read as another THEN — so it has to state an OUTCOME, never a condition. Test each entry by reading its keyword in front of it:
+- "THEN no requests match the search term, the table displays No rows" — WRONG. That is a condition wearing an outcome's clothes, and it happens most often when you bolt a boundary case onto the happy path.
+- "THEN the table displays No rows in the center when no request matches" — right: an outcome, with its condition attached.
+
+EMPTY, NO-MATCH AND OTHER BOUNDARY OUTCOMES — the pattern to follow:
+- If the boundary shares the criterion's WHEN (the same action, a different data state), keep it as a `then` continuation and write it OUTCOME-FIRST, condition after: "the empty state text \"No rows\" is displayed in the center of the table when no workspace request matches the search term".
+- If the boundary needs a DIFFERENT trigger — a different action, a different starting state — it is a different When-Then and gets its OWN criterion. Do not stack two triggers in one.
+- Either way, name the observable result. "Nothing is shown" is not a result; the exact empty text, or an explicitly empty list with no rows, is.
+
 Testability: every criterion must be verifiable by QA through OBSERVABLE OUTPUT — application UI (screens, modals, buttons, messages), email output, notification messages, downloadable files or reports, or any media the user or test team can view. If a behavior cannot be observed through any of those, it is NOT a valid criterion.
 
 Non-UI technical work: never write a criterion for pure backend, frontend-only, or infrastructure work with no visible result. Route it to `backend_notes`, `frontend_notes` or `infra_notes` instead, and only when the user actually provided that content. Those notes are developer reference, not QA scope.
