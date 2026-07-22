@@ -78,9 +78,9 @@ def show_intake_summary(
     problem_statement: str,
     targets_a_screen: bool,
     user_supplied_ac_count: int = 0,
-    backend_notes: list = None,
-    frontend_notes: list = None,
-    infra_notes: list = None,
+    backend_notes: list[str] = None,
+    frontend_notes: list[str] = None,
+    infra_notes: list[str] = None,
     transcription_flags: list = None,
 ) -> dict:
     """Show what you understood from the user's input, before committing to criteria.
@@ -114,12 +114,12 @@ def show_intake_summary(
 @tool
 def show_design_context(
     screen_name: str = "",
-    fields_and_controls: list = None,
-    visible_states: list = None,
-    visible_messages: list = None,
-    lists_or_tables: list = None,
-    roles_or_modes: list = None,
-    uncertain: list = None,
+    fields_and_controls: list[str] = None,
+    visible_states: list[str] = None,
+    visible_messages: list[str] = None,
+    lists_or_tables: list[str] = None,
+    roles_or_modes: list[str] = None,
+    uncertain: list[str] = None,
 ) -> dict:
     """Report what you can actually SEE in the attached screenshot(s). Visible facts only.
 
@@ -132,7 +132,9 @@ def show_design_context(
         fields_and_controls: Buttons, inputs, dropdowns, tabs, menus, links, with visible labels.
         visible_states: Empty, loading, error or populated states, as shown.
         visible_messages: Exact on-screen text, verbatim — validation messages, banners, tooltips, modal text.
-        lists_or_tables: Any list or table, its columns, and any visible sort or filter controls.
+        lists_or_tables: One string per list or table, naming its columns and any
+            visible sort or filter controls inline — "Results table: Name, Status,
+            Created; sortable by Created". Never an object; the card shows a line.
         roles_or_modes: Role-specific or mode-specific controls that are visible.
         uncertain: Anything ambiguous — noted, never guessed.
     """
@@ -249,9 +251,9 @@ def show_checklist_scorecard(items: list, loop: int = 0) -> dict:
 
 @tool
 def show_story_report(
-    changes_made: list = None,
+    changes_made: list[str] = None,
     open_business_decisions: list = None,
-    recommendations: list = None,
+    recommendations: list[str] = None,
 ) -> dict:
     """Show PART 2 — the commentary that must never appear inside the artifact.
 

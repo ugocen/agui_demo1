@@ -1,6 +1,15 @@
 "use client";
 
-import { CardTitle, Chip, ListSection, Placeholder, cardBox, subtleLabel } from "@/components/cards/storyPrimitives";
+import {
+  CardTitle,
+  Chip,
+  ListSection,
+  Placeholder,
+  cardBox,
+  displayText,
+  subtleLabel,
+  textList,
+} from "@/components/cards/storyPrimitives";
 
 type TranscriptionFlag = { token?: string; guess?: string; why?: string };
 
@@ -25,28 +34,27 @@ const mono: React.CSSProperties = {
   padding: "0 4px",
 };
 
-/** Same blank-dropping rule ListSection applies, so "is there anything?" agrees with what renders. */
-function clean(items?: string[]): string[] {
-  return (items ?? []).map((item) => String(item ?? "").trim()).filter((item) => item !== "");
-}
+const clean = (value?: unknown) => displayText(value).trim();
 
 export function IntakeSummaryCard(props: IntakeSummaryProps) {
   const acCount = props.user_supplied_ac_count ?? 0;
   const flags = (props.transcription_flags ?? []).filter(
-    (flag) => (flag?.token ?? "").trim() !== "" || (flag?.guess ?? "").trim() !== "",
+    (flag) => clean(flag?.token) !== "" || clean(flag?.guess) !== "",
   );
   const notes = [props.backend_notes, props.frontend_notes, props.infra_notes];
 
   // Label/value pairs, blanks dropped — a half-streamed intake should show only
   // what has actually arrived, never an empty row waiting to be filled.
   const fields: { label: string; value: string }[] = [
-    { label: "Persona", value: (props.persona ?? "").trim() },
-    { label: "Goal", value: (props.goal ?? "").trim() },
-    { label: "Benefit", value: (props.benefit ?? "").trim() },
-    { label: "Problem statement", value: (props.problem_statement ?? "").trim() },
+    { label: "Persona", value: clean(props.persona) },
+    { label: "Goal", value: clean(props.goal) },
+    { label: "Benefit", value: clean(props.benefit) },
+    { label: "Problem statement", value: clean(props.problem_statement) },
   ].filter((field) => field.value !== "");
 
-  const hasNotes = notes.some((list) => clean(list).length > 0);
+  // Same blank-dropping rule ListSection applies, so "is there anything?" agrees
+  // with what renders.
+  const hasNotes = notes.some((list) => textList(list).length > 0);
   const empty =
     fields.length === 0 && flags.length === 0 && !hasNotes && !props.targets_a_screen && acCount <= 0;
   if (empty) {
@@ -84,9 +92,9 @@ export function IntakeSummaryCard(props: IntakeSummaryProps) {
             {flags.map((flag, index) => {
               // A half-arrived flag has one side only; show that side rather than an
               // empty monospace box or an arrow pointing at nothing.
-              const token = (flag.token ?? "").trim();
-              const guess = (flag.guess ?? "").trim();
-              const why = (flag.why ?? "").trim();
+              const token = clean(flag.token);
+              const guess = clean(flag.guess);
+              const why = clean(flag.why);
               return (
                 <li key={index}>
                   {token !== "" ? <span style={mono}>{token}</span> : null}

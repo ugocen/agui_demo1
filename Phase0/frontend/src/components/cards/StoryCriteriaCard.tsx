@@ -1,6 +1,14 @@
 "use client";
 
-import { CardTitle, Chip, Placeholder, cardBox, type Tone } from "@/components/cards/storyPrimitives";
+import {
+  CardTitle,
+  Chip,
+  Placeholder,
+  cardBox,
+  displayText,
+  textList,
+  type Tone,
+} from "@/components/cards/storyPrimitives";
 
 type Criterion = {
   title?: string;
@@ -29,8 +37,8 @@ const keyword: React.CSSProperties = {
   marginRight: 6,
 };
 
-/** The props are agent JSON, so a "string" can arrive as a number or null: coerce, then trim. */
-const clean = (value?: string) => String(value ?? "").trim();
+/** The props are agent JSON, so a "string" can arrive as a number, null or object. */
+const clean = (value?: unknown) => displayText(value).trim();
 
 function statusTone(status?: string): Tone {
   const value = clean(status).toLowerCase();
@@ -48,7 +56,7 @@ function CoverageChip({ coverage }: { coverage?: string }) {
 
 /** One keyword group: `lead` on the first line, `continuation` (indented) on the rest. */
 function ClauseGroup({ lead, items, continuation = "AND", indentAll = false }: ClauseProps) {
-  const lines = (items ?? []).filter((text) => String(text ?? "").trim() !== "");
+  const lines = textList(items);
   if (lines.length === 0) return null;
   return (
     <>

@@ -6,7 +6,9 @@ import {
   ListSection,
   Placeholder,
   cardBox,
+  displayText,
   subtleLabel,
+  textList,
 } from "@/components/cards/storyPrimitives";
 
 type DesignContextProps = {
@@ -24,33 +26,22 @@ const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 /** Warn palette, copied from the shared TONES table so the block matches a warn Chip. */
 const WARN = { fg: "#a86400", bg: "#fdf3e3", border: "#f0dcb4" };
 
-function clean(items?: string[]): string[] {
-  return (items ?? []).map((item) => String(item ?? "").trim()).filter((item) => item !== "");
-}
-
-/**
- * Like `clean`, but never touches the string itself — blank entries are dropped and
- * everything else is left byte for byte. The message block exists so the user can
- * check the wording against the screenshot character by character, and the box it
- * renders in is `pre-wrap`, so a stray leading or trailing space in the real UI is
- * visible there. Trimming would quietly show wording the screenshot does not have.
- */
-function verbatim(items?: string[]): string[] {
-  return (items ?? []).map((item) => String(item ?? "")).filter((item) => item.trim() !== "");
-}
-
 export function DesignContextCard(props: DesignContextProps) {
-  const screenName = (props.screen_name ?? "").trim();
-  const messages = verbatim(props.visible_messages);
-  const uncertain = clean(props.uncertain);
+  const screenName = displayText(props.screen_name).trim();
+  // `textList` leaves the strings byte for byte, which the message block below
+  // depends on: it is `pre-wrap` so the user can check the wording against the
+  // screenshot character by character, and a trim would quietly show wording the
+  // screenshot does not have.
+  const messages = textList(props.visible_messages);
+  const uncertain = textList(props.uncertain);
   const hasAnything =
     screenName !== "" ||
     messages.length > 0 ||
     uncertain.length > 0 ||
-    clean(props.fields_and_controls).length > 0 ||
-    clean(props.visible_states).length > 0 ||
-    clean(props.lists_or_tables).length > 0 ||
-    clean(props.roles_or_modes).length > 0;
+    textList(props.fields_and_controls).length > 0 ||
+    textList(props.visible_states).length > 0 ||
+    textList(props.lists_or_tables).length > 0 ||
+    textList(props.roles_or_modes).length > 0;
 
   if (!hasAnything) {
     return <Placeholder>Reading the screenshot…</Placeholder>;
