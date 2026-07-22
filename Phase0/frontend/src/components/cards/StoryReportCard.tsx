@@ -1,6 +1,15 @@
 "use client";
 
-import { CardTitle, Chip, ListSection, Placeholder, cardBox, subtleLabel } from "@/components/cards/storyPrimitives";
+import {
+  CardTitle,
+  Chip,
+  ListSection,
+  Placeholder,
+  cardBox,
+  displayText,
+  subtleLabel,
+  textList,
+} from "@/components/cards/storyPrimitives";
 
 type BusinessDecision = {
   question?: string;
@@ -15,7 +24,7 @@ type StoryReportCardProps = {
   recommendations?: string[];
 };
 
-const text = (value?: string) => String(value ?? "").trim();
+const text = (value?: unknown) => displayText(value).trim();
 
 const decisionBox: React.CSSProperties = { border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "8px 0" };
 
@@ -31,8 +40,10 @@ export function StoryReportCard({
   open_business_decisions,
   recommendations,
 }: StoryReportCardProps) {
-  const changes = (changes_made ?? []).filter((entry) => text(entry) !== "");
-  const advice = (recommendations ?? []).filter((entry) => text(entry) !== "");
+  // Counted and rendered off the same list, so the chip cannot claim more
+  // changes than the section below it shows.
+  const changes = textList(changes_made);
+  const advice = textList(recommendations);
   // A streaming delta can land a decision object before any of its fields
   // arrive; an all-empty one would render as an empty bordered block.
   const decisions = (open_business_decisions ?? []).filter(

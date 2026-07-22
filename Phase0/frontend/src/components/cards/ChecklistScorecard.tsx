@@ -1,6 +1,13 @@
 "use client";
 
-import { CardTitle, Chip, Placeholder, cardBox, subtleLabel } from "@/components/cards/storyPrimitives";
+import {
+  CardTitle,
+  Chip,
+  Placeholder,
+  cardBox,
+  displayText,
+  subtleLabel,
+} from "@/components/cards/storyPrimitives";
 
 type ChecklistResult = { item_id?: number; status?: string; reason?: string };
 
@@ -38,14 +45,16 @@ const GROUPS: { label: string; ids: number[] }[] = [
 
 const GROUPED_IDS = new Set(GROUPS.flatMap((group) => group.ids));
 
-const statusOf = (item: ChecklistResult) => String(item.status ?? "").trim().toUpperCase();
+const statusOf = (item: ChecklistResult) => displayText(item.status).trim().toUpperCase();
 const isPass = (item: ChecklistResult) => statusOf(item) === "PASS";
 // Absent status means "not graded yet", not "failed" — the props arrive as a partial
 // stream, so an item lands before its verdict does. Treating that as a failure paints
 // the whole card red for the length of the stream.
 const isFail = (item: ChecklistResult) => statusOf(item) !== "" && !isPass(item);
 const nameOf = (id?: number) => (id === undefined ? "Ungraded item" : (ITEM_NAMES[id] ?? `Item ${id}`));
-const reasonOf = (item: ChecklistResult) => String(item.reason ?? "").trim();
+const reasonOf = (item: ChecklistResult) => displayText(item.reason).trim();
+/** The id is a number and is grouped as one, but it is still agent JSON at render time. */
+const idOf = (item: ChecklistResult) => displayText(item.item_id).trim() || "?";
 /** A streaming delta can land the object before any of its fields; that is not an item yet. */
 const isBlank = (item: ChecklistResult) =>
   item.item_id === undefined && statusOf(item) === "" && reasonOf(item) === "";
@@ -93,7 +102,7 @@ export function ChecklistScorecard({ items, loop }: { items?: ChecklistResult[];
                   title={why ? `${nameOf(item.item_id)} — ${why}` : nameOf(item.item_id)}
                 >
                   <Chip tone={isPass(item) ? "good" : isFail(item) ? "bad" : "neutral"}>
-                    {item.item_id ?? "?"}
+                    {idOf(item)}
                   </Chip>
                 </span>
               );
@@ -107,7 +116,7 @@ export function ChecklistScorecard({ items, loop }: { items?: ChecklistResult[];
           {failed.map((item, index) => (
             <div key={`${item.item_id ?? "f"}-${index}`} style={{ marginBottom: 6 }}>
               <div>
-                {item.item_id ?? "?"}. {nameOf(item.item_id)}
+                {idOf(item)}. {nameOf(item.item_id)}
               </div>
               {reasonOf(item) !== "" ? <div style={{ color: "#888" }}>{reasonOf(item)}</div> : null}
             </div>

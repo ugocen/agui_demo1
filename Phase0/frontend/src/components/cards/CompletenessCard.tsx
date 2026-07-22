@@ -1,6 +1,13 @@
 "use client";
 
-import { CardTitle, Chip, Placeholder, cardBox, subtleLabel } from "@/components/cards/storyPrimitives";
+import {
+  CardTitle,
+  Chip,
+  Placeholder,
+  cardBox,
+  displayText,
+  subtleLabel,
+} from "@/components/cards/storyPrimitives";
 
 type Finding = {
   ac_id?: string;
@@ -65,8 +72,8 @@ export function CompletenessCard({ findings }: { findings?: Finding[] }) {
           {group.items.map((finding, index) => {
             // Trimmed, because a whitespace-only resolution is an empty one: it would
             // otherwise print the "resolved by default:" colon with nothing after it.
-            const acId = (finding.ac_id ?? "").trim();
-            const resolution = (finding.resolution ?? "").trim();
+            const acId = displayText(finding.ac_id).trim();
+            const resolution = displayText(finding.resolution).trim();
             return (
               <div key={index} style={{ padding: "4px 0" }}>
                 {acId ? (
@@ -74,7 +81,7 @@ export function CompletenessCard({ findings }: { findings?: Finding[] }) {
                     <Chip>{acId}</Chip>{" "}
                   </>
                 ) : null}
-                <span>{finding.gap ?? ""}</span>
+                <span>{displayText(finding.gap)}</span>
                 <div style={{ marginTop: 3 }}>
                   {finding.is_mechanical ? (
                     <>

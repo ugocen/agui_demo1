@@ -89,9 +89,57 @@ export function CardTitle({ title, right }: { title: string; right?: React.React
   );
 }
 
+/**
+ * Turn one raw agent value into text that is safe to render.
+ *
+ * Card props are unvalidated model output: `useRenderTool` hands a card the tool
+ * call's arguments as they stream, so a field declared `string[]` can arrive
+ * holding a number, a null, or an object — and a list streaming in as
+ * `[{"name": "Results"` parses to `[{}]` for a frame or two on the way. React
+ * throws on an object child and takes the whole chat down with it, so no agent
+ * value may reach JSX without passing through here first.
+ *
+ * An object is flattened to its leaf text rather than dropped, because the model
+ * did see something and showing it imperfectly beats losing it silently in a
+ * card whose whole job is fidelity. Anything carrying no text at all — `{}`,
+ * `[]`, null — comes back "" so the caller can drop it.
+ */
+export function displayText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return joinText(value, ", ");
+  if (typeof value === "object") return joinText(Object.values(value), " — ");
+  return "";
+}
+
+function joinText(values: unknown[], separator: string): string {
+  return values
+    .map(displayText)
+    .filter((text) => text.trim() !== "")
+    .join(separator);
+}
+
+/**
+ * An agent list as renderable text, blanks dropped. A bare value counts as a
+ * one-item list — a model asked for a list sometimes sends a single string, and
+ * that is content, not an error.
+ *
+ * Items are emptiness-tested trimmed but returned untrimmed: a card may show
+ * wording the user checks character by character against a screenshot, in a
+ * `pre-wrap` box where a stray leading space is a real difference rather than
+ * noise. Test with `.trim()`, keep the bytes.
+ */
+export function textList(items?: unknown): string[] {
+  const values = Array.isArray(items) ? items : items === null || items === undefined ? [] : [items];
+  return values.map(displayText).filter((text) => text.trim() !== "");
+}
+
 /** A labelled block that renders nothing at all when it has no items. */
-export function ListSection({ label, items }: { label: string; items?: string[] }) {
-  const filled = (items ?? []).filter((item) => String(item ?? "").trim() !== "");
+export function ListSection({ label, items }: { label: string; items?: unknown }) {
+  // `unknown`, not `string[]`: the declared type is what the agent is supposed to
+  // send, and this is where that stops being an assumption.
+  const filled = textList(items);
   if (filled.length === 0) return null;
   return (
     <div style={{ marginTop: 10 }}>
