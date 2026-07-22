@@ -83,7 +83,15 @@ export function StoryCriteriaCard(props: StoryCriteriaCardProps) {
   return (
     <div>
       {told.length > 0 || coverage !== "" ? (
-        <div style={{ ...cardBox, display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <div
+          style={{
+            ...cardBox,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
           <div style={{ lineHeight: 1.6 }}>
             {told.map((line) => (
               <div key={line.lead}>

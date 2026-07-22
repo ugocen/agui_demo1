@@ -68,6 +68,36 @@ function FallbackRender() {
 // the only way to get text into the transcript, and a synthetic assistant turn
 // would then be replayed to the model as its own prior output on every
 // subsequent run.
+/**
+ * Turn the two run errors that read as nonsense into what actually happened.
+ *
+ * `terminated` is the worst of them, and it is not the agent's word. Node's
+ * fetch (undici) throws `TypeError: terminated`, cause "other side closed",
+ * when a response body is cut mid-stream — so what the user sees when the
+ * backend proxy dies half way through a run is the single word "terminated"
+ * attributed to their agent. Verified by reproducing it against a server that
+ * destroys its socket mid-body. The agent is usually still fine on AgentCore;
+ * only the pipe to the browser is gone.
+ *
+ * Same spirit as `scripts/smoke_test.py:explain_run_error`, which does this for
+ * AgentCore's "initialization" error: name the thing worth checking rather than
+ * echoing a word the user cannot act on.
+ */
+function explainRunError(code: string, message: string): string {
+  const text = message || "";
+  if (/\bterminated\b/i.test(text) || /other side closed/i.test(text)) {
+    return (
+      "The connection to the backend dropped part-way through this run — the agent " +
+      "itself is probably still healthy on AgentCore. Check that the backend is " +
+      "still listening on port 8000, then send the message again."
+    );
+  }
+  if (/aws login|credentials|LoginRefreshRequired/i.test(text)) {
+    return `AWS credentials have expired — run \`aws login\`, then retry. (${text})`;
+  }
+  return `${code}: ${text}`;
+}
+
 function RunErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
     <div className="run-error" role="alert">
@@ -175,7 +205,7 @@ export function AgentChat({
   // expired `aws login` session. Without a handler CopilotKit only console.errors
   // these, which is why a broken run read as the agent saying nothing.
   const onError = useCallback(({ error, code }: { error: Error; code: string }) => {
-    setRunError(`${code}: ${error.message}`);
+    setRunError(explainRunError(code, error.message));
   }, []);
 
   // Attachments are per-agent because an unusable paperclip is worse than none:

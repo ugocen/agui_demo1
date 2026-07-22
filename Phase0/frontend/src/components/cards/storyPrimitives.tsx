@@ -58,6 +58,13 @@ export function Chip({ tone = "neutral", children }: { tone?: Tone; children: Re
         background: palette.bg,
         border: `1px solid ${palette.border}`,
         whiteSpace: "nowrap",
+        // A chip is almost always placed in a flex row, where the default
+        // `align-items: stretch` makes it as TALL as its tallest sibling. Next to
+        // a three-line user story that turned the 999px radius into a giant green
+        // disc with the label stranded at the top of it. Chips size to their own
+        // text, always — so the chip itself opts out rather than relying on every
+        // parent to remember `alignItems`.
+        alignSelf: "flex-start",
       }}
     >
       {children}
