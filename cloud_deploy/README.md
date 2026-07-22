@@ -153,34 +153,44 @@ so `a2ui-demo-strands` becomes e.g. `a2ui_demo_strands-XjHRIuAVCG`. List them wi
 `aws bedrock-agentcore-control list-agent-runtimes`, then
 `aws logs tail /aws/bedrock-agentcore/runtimes/<id>-DEFAULT --since 1d`.
 
-**stdout is free; everything else has to be switched on.** AgentCore ships the
+**stdout is free; traces have to be switched on.** AgentCore ships the
 `[runtime-logs]` streams and the `AWS/Bedrock-AgentCore` metrics (invocations,
-latency, errors, sessions) with no work at all. The other two streams are
-created empty and stay empty until all of this is true:
+latency, errors, sessions) with no work at all. `otel-rt-logs` and the spans need
+two things:
 
 * the zip carries `aws-opentelemetry-distro` **and** the entry point is wrapped
   (steps 1 and 4 above) — this is the half that was missing until 2026-07-22, and
-  the symptom was exactly that: `otel-rt-logs` present, never written to;
-* **CloudWatch Transaction Search** is enabled once per account+region;
-* the execution role grants `logs:PutResourcePolicy` on
-  `/aws/bedrock-agentcore/runtimes/*`. See
-  `Phase0/aws-setup/execution-role-policy.json`.
+  the symptom was exactly that: `otel-rt-logs` present on every runtime, never
+  written to;
+* **CloudWatch Transaction Search** enabled once per account+region.
 
-That last one is the easiest to get wrong, because logs and spans fail
-*separately*. Enabling Transaction Search writes one account-level resource
-policy, `TransactionSearchXRayAccess`, and it names exactly two log groups:
-`aws/spans` and `/aws/application-signals/data`. A runtime on the per-agent
-destination writes to neither, so X-Ray has nowhere to put its spans — and
-AgentCore can only add the missing per-log-group policy if the execution role
-allows `logs:PutResourcePolicy`. Verified on 2026-07-22 with `A2UI_demo`: ADOT
-was running and `otel-rt-logs` filled with GenAI records carrying trace ids,
-while the `spans` stream stayed at 0 bytes and no exporter error appeared
-anywhere. Nothing tells you; the spans are simply absent.
+Verified end to end on 2026-07-22 with `A2UI_demo`: one invocation produces a
+five-span tree — `POST /invocations` → `invoke_agent Strands Agents` →
+`execute_event_loop_cycle` → `chat` → `chat <model-id>` — in the shared
+`aws/spans` group, plus GenAI records in `otel-rt-logs` carrying the same trace
+id.
 
-If that permission cannot be granted — a plausible outcome in the enterprise
-account — set `UNIFIED_TRACES_DESTINATION_ENABLED=false` on the runtime instead.
-Spans then go to the shared `aws/spans` group, which the account-level policy
-above already permits, and no IAM change is needed.
+Which destination gets the spans depends on the runtime. Ours deliver to the
+shared `aws/spans` group, which the account-level `TransactionSearchXRayAccess`
+policy (written when Transaction Search was enabled) already permits. A runtime
+on the **per-agent** destination writes to the `spans` stream in its own log
+group instead, and that needs `logs:PutResourcePolicy` on the execution role —
+AgentCore uses it to let X-Ray write there. The policy in
+`Phase0/aws-setup/execution-role-policy.json` grants it, so either destination
+works; `UNIFIED_TRACES_DESTINATION_ENABLED` on the runtime picks between them.
+
+> **Do not diagnose "no spans" from `describe-log-streams`.** Its
+> `lastEventTimestamp` is eventually consistent and lagged by over two hours
+> here, which read as an empty stream while the spans were already delivered —
+> it sent this investigation down a wrong path once already. Ask the log group
+> directly instead:
+> ```bash
+> aws logs filter-log-events --log-group-name aws/spans \
+>   --start-time $(( ($(date +%s) - 3600) * 1000 )) --query 'length(events)'
+> ```
+> `aws xray get-trace-summaries` is also the wrong check on its own: Transaction
+> Search indexes a 1% sample by default, so a real trace usually will not appear
+> there even though the spans are in the log group.
 
 For the enterprise copy this matters more than it does on Bedrock: the model call
 goes to the gateway, so there are no `AWS/Bedrock` metrics and no model-invocation
