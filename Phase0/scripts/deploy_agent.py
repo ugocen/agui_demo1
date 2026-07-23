@@ -102,6 +102,24 @@ CATALOG_AGENT_IDS = {
 # proxy that routes to them, for a setting whose name is about *browser* sign-in.
 JWT_AUTH_AGENTS = {"whoami-strands"}
 
+# AgentCore forwards NO request header to agent code unless the runtime allowlists
+# it. Not the caller's bearer, and not the `X-Amzn-Bedrock-AgentCore-Runtime-Custom-`
+# headers either — that prefix only makes a header *eligible* to be allowlisted; it
+# has never been enough on its own. A runtime deployed without this reaches agent
+# code with exactly two headers, both injected by the platform (`baggage`,
+# `workloadaccesstoken`), which is why whoami-strands answered "no user token
+# reached this runtime" for a request AgentCore had just authenticated.
+#
+# Set on every runtime, not just the JWT one: the relay is a platform feature
+# (AGENT_TOKEN_RELAY), any agent may become identity-aware, and the cap is 20
+# headers. `Authorization` is the exception — the API only accepts it on a runtime
+# that has a customJWTAuthorizer, so it is added per inbound auth below.
+# https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-header-allowlist.html
+RELAY_HEADERS = [
+    "X-Amzn-Bedrock-AgentCore-Runtime-Custom-Id-Token",
+    "X-Amzn-Bedrock-AgentCore-Runtime-Custom-Graph-Token",
+]
+
 READY_TIMEOUT_SECONDS = 300
 POLL_SECONDS = 5
 
@@ -540,11 +558,18 @@ def main() -> None:
         "protocolConfiguration": {"serverProtocol": "AGUI"},
         "environmentVariables": env_vars,
     }
+    # See RELAY_HEADERS: without this the runtime hands agent code no headers at all.
+    allowlist = list(RELAY_HEADERS)
     if inbound_auth == "jwt":
         runtime_config["authorizerConfiguration"] = {"customJWTAuthorizer": jwt_authorizer(env)}
+        # Only legal alongside a customJWTAuthorizer, and only useful there: under
+        # IAM this header carries the SigV4 signature, never a user token.
+        allowlist.append("Authorization")
         print("Inbound auth: JWT (the caller's Entra token; the proxy forwards it instead of SigV4)")
     else:
         print("Inbound auth: IAM/SigV4 (the backend proxy signs with the host's AWS credentials)")
+    runtime_config["requestHeaderConfiguration"] = {"requestHeaderAllowlist": allowlist}
+    print(f"Header allowlist: {', '.join(allowlist)}")
 
     if existing:
         runtime_id = existing["agentRuntimeId"]
