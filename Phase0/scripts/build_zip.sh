@@ -56,9 +56,41 @@ if [ ! -f "$LOCK_PATH" ]; then
   echo "      Phase0/scripts/lock_agents.sh $AGENT_DIR" >&2
   exit 1
 fi
-if [ "$AGENT_DIR/requirements.txt" -nt "$LOCK_PATH" ]; then
-  echo "FAIL: requirements.txt is newer than requirements.lock — the lock is stale." >&2
-  echo "      Regenerate and review the diff: Phase0/scripts/lock_agents.sh $AGENT_DIR" >&2
+# Is the lock current? Compare CONTENT, not mtime.
+#
+# This was `requirements.txt -nt requirements.lock`, which is wrong for both ways
+# these files actually arrive. Git does not preserve mtimes, so a fresh clone or a
+# branch switch orders the pair arbitrarily; and unzipping the delivered agents
+# payload restores whatever ordering the packaging machine happened to have. Every
+# agent read as stale after a `git pull` here, and the enterprise side would have
+# hit the same failure on a first build straight out of the zip. The only way past
+# it was to touch a file — which trains you to bypass the check that catches the
+# real case.
+#
+# What matters is whether every pin in requirements.txt is resolved at that exact
+# version in the lock. Bump a pin, add a package or swap one out without
+# re-locking and the lock no longer carries that line. Reorder, reformat or
+# re-comment requirements.txt and nothing trips, correctly.
+stale_pins=""
+while IFS= read -r req_line || [ -n "$req_line" ]; do
+  req_line="$(printf '%s' "${req_line%%#*}" | tr -d '[:space:]')"
+  [ -n "$req_line" ] || continue
+  case "$req_line" in *==*) ;; *) continue ;; esac
+  pin_name="${req_line%%==*}"
+  pin_version="${req_line#*==}"
+  # pyjwt[crypto] -> pyjwt. The extra's own dependencies are separate lock lines.
+  pin_name="${pin_name%%[*}"
+  # The lock is written PEP 503-normalized (lowercase, hyphens); match that.
+  pin_name="$(printf '%s' "$pin_name" | tr '[:upper:]' '[:lower:]' | tr '_.' '--')"
+  grep -qxF "$pin_name==$pin_version" "$LOCK_PATH" || stale_pins="$stale_pins        $req_line
+"
+done < "$AGENT_DIR/requirements.txt"
+
+if [ -n "$stale_pins" ]; then
+  echo "FAIL: requirements.lock does not resolve these requirements.txt pins:" >&2
+  printf '%s' "$stale_pins" >&2
+  echo "      The lock is stale. Regenerate it and review the diff:" >&2
+  echo "      Phase0/scripts/lock_agents.sh $AGENT_DIR" >&2
   exit 1
 fi
 
