@@ -12,7 +12,41 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`agents/.env.example` documented a deploy script that no longer exists.**
+  Three corrections, all in the hand-written template — no code changed, so the
+  archives in `dist/` are unaffected in behaviour but no longer byte-match the
+  payload until the next `make_zips.sh`.
+
+  - *Inbound auth.* The template said `AUTH_MODE=entra` makes `deploy_agent.py`
+    attach a JWT authorizer to the runtime. It does not: since the identity work
+    (#54) the choice is per agent — `JWT_AUTH_AGENTS` in the script, overridable
+    with `--auth=iam|jwt` — and `AUTH_MODE` is not read there at all. Following
+    the old text set a variable with no effect and gave no hint why the runtime
+    stayed IAM-authorized.
+  - *The two values a JWT deploy needs were absent.* `ENTRA_TENANT_ID` and
+    `ENTRA_SPA_CLIENT_ID` appeared nowhere in the template, so deploying
+    `whoami-strands` — the one agent that defaults to `--auth=jwt` — exits with
+    `FAIL: --auth=jwt needs ENTRA_TENANT_ID ...` and the file the operator was
+    told to fill in does not mention it. Both are now present, with the
+    `ENTRA_ALLOWED_AUDIENCE` / `accessTokenAcceptedVersion: 2` trap written down.
+  - *Runtime ARNs.* A "WRITTEN BACK AUTOMATICALLY" block still described the
+    script appending `PLANNER_RUNTIME_ARN` and four others to `.env` after each
+    deploy. That write-back was removed when the deploy became catalog-first
+    (#33); the block now says so, and says such lines in an existing `.env` are
+    dead config.
+
+### Added
+
+- **`CATALOG_DB_PATH` is documented.** The deploy resolves its target from the
+  platform DB so it updates the runtime the live app actually routes to, and it
+  looks for `backend/phase0.db` next to the agents folder. In this delivery the
+  backend is a separate repository, so that path never exists: every enterprise
+  deploy silently falls back to the name convention, which is exactly how a
+  same-named twin runtime gets updated while the app stays on stale code. The
+  template now explains the fallback, how to point at the backend checkout, and
+  that a Postgres catalog cannot be read by the script at all.
 
 ## [1.10.0] — 2026-07-22
 
