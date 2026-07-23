@@ -1,7 +1,7 @@
-ba62ffd8643111ca3f9e2d0d9cddd4d78b4b90345422642f22880371e6c3e04e  ./a2ui-demo-strands-1.10.0.zip
-327dab5e5724c9a5f3d8189413847955698d86f9925909eb43f45478b86758b9  ./bug-report-strands-1.10.0.zip
-f791983a88eefd821133c65e4435f884d53b0fd4a39f1f78a6f9451e56bfb7ce  ./jira-story-strands-1.10.0.zip
-213e3419ab77c994bc982166e547812c751b023afec79dec3eef7ad622f2b163  ./press-release-strands-1.10.0.zip
-65eaa5044b6dd0db91841a3ed9f88acabcc88412e4bf3dec7eedb3ee6412712a  ./release-readiness-langgraph-1.10.0.zip
-45b71fca066cebbe2fac8f26bb52f3617e20e14b3c5347ffd4947d08ab4d018f  ./sdlc-planner-strands-1.10.0.zip
-ff98c75ee65f8a1862ce656fbe02b6baaec70e37df3a2e3e29847688dc8987cd  ./whoami-strands-1.10.0.zip
+ba62ffd8643111ca3f9e2d0d9cddd4d78b4b90345422642f22880371e6c3e04e  ./a2ui-demo-strands-1.11.0.zip
+327dab5e5724c9a5f3d8189413847955698d86f9925909eb43f45478b86758b9  ./bug-report-strands-1.11.0.zip
+f791983a88eefd821133c65e4435f884d53b0fd4a39f1f78a6f9451e56bfb7ce  ./jira-story-strands-1.11.0.zip
+213e3419ab77c994bc982166e547812c751b023afec79dec3eef7ad622f2b163  ./press-release-strands-1.11.0.zip
+65eaa5044b6dd0db91841a3ed9f88acabcc88412e4bf3dec7eedb3ee6412712a  ./release-readiness-langgraph-1.11.0.zip
+45b71fca066cebbe2fac8f26bb52f3617e20e14b3c5347ffd4947d08ab4d018f  ./sdlc-planner-strands-1.11.0.zip
+f9c23aaf914ceb30d4b17b8ce85ca91897ff3a4cdc459af2cc4f8418d132f8db  ./whoami-strands-1.11.0.zip

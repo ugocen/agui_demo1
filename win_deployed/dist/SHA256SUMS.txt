@@ -1,3 +1,4 @@
-52967b0774dbc2a02dba4abd8c2e24ec0fff5d34b60c1249c218257bfa1088da  ./agui-agents-1.10.0.zip
-0fddda1c0b14babf3c24e74e827449136db56a9178ec8eeaebc1882dfee6e6fe  ./agui-backend-1.10.0.zip
-cff88073e9a142e6ad59bd90c1d08667e9c4dada5582f3da0fea33d7158d0437  ./agui-frontend-1.10.0.zip
+21343dcb32e4bf97b807cf0eb2090161944eff33d0d8f290bb124072faf13315  ./agui-agents-1.11.0.zip
+c84eafde8a73020d82dc4bd3a3a752f65329a64e690befd0d9056579c0d4365f  ./agui-backend-1.11.0.zip
+d37bd5ee84a403f2d9cfec0b661c731cbcbacf69fceaeea0c61da392a93ca7d0  ./agui-deploy-1.11.0.zip
+648231ea11ef78cdd615e8bbf47b4af26356825234753d07499f902a2c114181  ./agui-frontend-1.11.0.zip

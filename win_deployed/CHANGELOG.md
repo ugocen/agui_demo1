@@ -12,6 +12,17 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-07-23
+
+Carries PRs #56 through #62 into the enterprise payload. The headline is that
+the package now deploys to **Kubernetes**: a fourth payload tree, `deploy/`,
+carries the manifests, and both components ship with container images. The
+target up to 1.10.0 was a single Windows host running the two services by hand.
+
+Two of the entries below are runtime configuration rather than package code —
+shipping this payload does not apply them. Read the `--config-only` note under
+the header allowlist before assuming the identity fix takes effect on upload.
+
 ### Fixed
 
 - **Agents could not see who was calling them: runtimes forwarded no headers.**
@@ -147,6 +158,17 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
   console. The header now separates the two: `NEXT_PUBLIC_BACKEND_URL` is the
   backend's public ingress hostname baked at build time, `BACKEND_URL` is the
   in-cluster URL the frontend pod reads at run time.
+
+- **`build_zip.sh` refused to build straight out of the delivered zip.** Its
+  lock-freshness gate compared mtimes (`requirements.txt -nt
+  requirements.lock`), and unzipping restores whatever mtime ordering the
+  packaging machine happened to have — so your first
+  `./scripts/build_zip.sh ./sdlc-planner-strands` could fail with "the lock is
+  stale" for a lock that was perfectly current, and the only way past it was to
+  touch a file. It now compares content: every `name==version` in
+  requirements.txt must be resolved at that exact version in the lock. A real
+  stale lock — a bumped pin, an added package — still fails, which is the case
+  the gate exists for.
 
 ## [1.10.0] — 2026-07-22
 
