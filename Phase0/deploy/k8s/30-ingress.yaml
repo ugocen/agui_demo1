@@ -1,0 +1,79 @@
+# Public entry points. TWO hostnames, because the browser talks to both services
+# directly — the backend is not hidden behind the frontend:
+#
+#   agui.example.internal      -> agui-frontend:3000   the app, and the
+#                                 server-side half of the AG-UI SSE stream
+#                                 (/api/copilotkit/...)
+#   agui-api.example.internal  -> agui-backend:8000    /api/me, /api/agents,
+#                                 /api/agui/<id>/health, /api/admin/*
+#
+# Whatever you put on the second host must equal NEXT_PUBLIC_BACKEND_URL in the
+# frontend image AND appear in the backend's CORS_ORIGINS — three places, one
+# value each, and the app fails differently for each one you get wrong.
+#
+# ---------------------------------------------------------------------------
+# The annotations below are load-bearing, not tuning.
+#
+# ingress-nginx buffers upstream responses by default. That buffering does to
+# the AG-UI stream exactly what architecture invariant 1 forbids the backend
+# from doing: tokens accumulate in the proxy and arrive as one block at the end
+# of the run. The app looks like it hangs for the whole answer and then dumps
+# it. `proxy-buffering: off` is what makes streaming actually stream.
+#
+# proxy-request-buffering: off matters for the other direction — an image
+# uploaded to a multimodal agent is otherwise buffered whole before the backend
+# sees any of it.
+#
+# The 1h read/send timeouts replace the 60s default, which severs any run that
+# streams for longer.
+#
+# On AWS Load Balancer Controller instead of ingress-nginx: an ALB does not
+# buffer responses, so streaming survives without an equivalent flag, but the
+# idle timeout still applies — set
+#   alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=3600
+# and use `ip` target-type so the ALB reaches pods directly.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agui
+  namespace: agui
+  labels:
+    app.kubernetes.io/part-of: agui
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Multimodal turns post images inline; the 1m default rejects them as 413.
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+spec:
+  ingressClassName: nginx
+  tls:
+    # REPLACE: the certificate Secret for these hostnames.
+    - hosts:
+        - agui.example.internal
+        - agui-api.example.internal
+      secretName: agui-tls
+  rules:
+    # REPLACE both hostnames.
+    - host: agui.example.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agui-frontend
+                port:
+                  name: http
+    - host: agui-api.example.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agui-backend
+                port:
+                  name: http

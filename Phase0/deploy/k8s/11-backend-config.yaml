@@ -1,0 +1,56 @@
+# Non-secret backend configuration.
+#
+# Every key here is read by app/ at run time; the full reference (what each one
+# does, and what breaks when it is wrong) is the enterprise backend's
+# `.env.example`. Anything carrying a credential goes in the Secret next door,
+# not here — a ConfigMap is readable by anyone with get on the namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agui-backend-config
+  namespace: agui
+  labels:
+    app.kubernetes.io/name: agui-backend
+    app.kubernetes.io/part-of: agui
+data:
+  # --- AWS ---
+  # REQUIRED. The region whose AgentCore control plane is listed and whose
+  # runtimes are invoked. Credentials come from IRSA, not from here.
+  AWS_REGION: "us-east-1"
+
+  # --- Layer A: browser -> backend ---
+  # `iam` (SSO off) or `entra`. In entra mode the identity comes from the
+  # Entra/Graph access token and roles are derived from AD-group membership
+  # server-side — the client is never trusted (architecture invariant 3).
+  AUTH_MODE: "entra"
+  ENTRA_TENANT_ID: ""
+  ENTRA_SPA_CLIENT_ID: ""
+  ENTRA_ALLOWED_CLIENT_IDS: ""
+  ENTRA_ADMIN_GROUP_ID: ""
+  ENTRA_ADMIN_GROUP_NAME: ""
+  ENTRA_ADMIN_EMAILS: ""
+  ENTRA_ADMIN_OIDS: ""
+  ENTRA_GROUP_ROLE_MAP: ""
+  ENTRA_GROUPS_TTL_SECONDS: "300"
+  REQUIRED_ROLE: ""
+
+  # --- CORS ---
+  # REQUIRED on Kubernetes. The browser calls this backend DIRECTLY for /api/me,
+  # /api/agents, /api/agui/<id>/health and the admin screen, so the frontend's
+  # public origin is cross-origin from here and every one of those calls is
+  # blocked until it is listed. Comma-separated; scheme included; no trailing
+  # slash. `*` is not an option — the app sends credentials, and browsers reject
+  # a wildcard origin on a credentialed request.
+  CORS_ORIGINS: "https://agui.example.internal"
+
+  # --- Layer B: backend -> AgentCore ---
+  # Relay the caller's own token to the agent alongside the SigV4 signature, for
+  # identity-aware agents. The runtime must also allowlist the relay headers —
+  # `deploy_agent.py --config-only` does that; deploying the package does not.
+  AGENT_TOKEN_RELAY: "1"
+
+  # --- Logging ---
+  # json: one object per line, which is what CloudWatch Logs Insights can query.
+  # `console` is the coloured dev renderer and is the wrong choice in a pod.
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"

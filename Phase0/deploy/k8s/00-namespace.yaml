@@ -1,0 +1,16 @@
+# Namespace for the whole Phase 0 stack.
+#
+# `pod-security.kubernetes.io/enforce: restricted` is set deliberately rather
+# than inherited: it is the standard both images are built for (non-root uid
+# 1001, no privilege escalation, all capabilities dropped), and enforcing it
+# here means a regression in either Dockerfile is rejected at admission instead
+# of shipping. Drop to `baseline` only if the cluster's own policy demands it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agui
+  labels:
+    app.kubernetes.io/part-of: agui
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

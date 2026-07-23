@@ -35,7 +35,7 @@ DIFF_EXCLUDE=(-x node_modules -x .next -x __pycache__ -x .venv -x build
               -x '*.pyc' -x '*.zip' -x .DS_Store -x .env -x .env.local
               -x '*.db' -x '*.sqlite3' -x CLAUDE.md -x AGENTS.md -x '*.tsbuildinfo')
 
-for tree in backend frontend agents; do
+for tree in "${PAYLOAD_TREES[@]}"; do
   zip_path="$DIST/agui-$tree-$VERSION.zip"
   if [ ! -f "$zip_path" ]; then
     echo "MISSING: dist/$(basename "$zip_path") — run make_zips.sh"
@@ -97,12 +97,12 @@ done
 
 if [ "$drift" -eq 0 ]; then
   echo "OK: dist/ archives match the win_deployed/ payload (version $VERSION) —" \
-       "3 source zips, ${#AGENT_DIRS[@]} AgentCore packages, both SHA256SUMS files"
+       "${#PAYLOAD_TREES[@]} source zips, ${#AGENT_DIRS[@]} AgentCore packages, both SHA256SUMS files"
   exit 0
 fi
 
 echo
 echo "The archives are behind the payload. Rebuild what drifted:"
-echo "  win_deployed/scripts/make_zips.sh            # the three source zips"
+echo "  win_deployed/scripts/make_zips.sh            # the source zips"
 echo "  win_deployed/scripts/make_agentcore_zips.sh  # the deployable AgentCore packages"
 exit 1

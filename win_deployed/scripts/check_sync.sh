@@ -46,7 +46,7 @@ for name in node_modules .next __pycache__ build dist .venv .DS_Store '*.pyc'; d
 done
 
 drift=0
-for tree in backend frontend agents; do
+for tree in "${PAYLOAD_TREES[@]}"; do
   if ! diff -qr "${DIFF_FILTER[@]}" \
       "$TMP/$tree" "$OUT/$tree" > "$TMP/diff.$tree" 2>&1; then
     echo "DRIFT in $tree/:"

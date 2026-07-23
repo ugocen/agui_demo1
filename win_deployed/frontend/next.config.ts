@@ -18,6 +18,10 @@ try {
 }
 
 const nextConfig: NextConfig = {
+  // Produce a self-contained server.js under .next/standalone/ so the app can
+  // run inside a container without the full node_modules tree. Required for
+  // the Docker/EKS deployment; harmless for local dev (`next dev` ignores it).
+  output: "standalone",
   // Pin the Turbopack workspace root to this app. Without it, Next.js walks up
   // the directory tree, finds an unrelated package-lock.json in a parent folder
   // (e.g. ~/projects) and infers the wrong root — widening dev-server file

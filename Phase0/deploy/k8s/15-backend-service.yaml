@@ -1,0 +1,25 @@
+# In-cluster address of the backend: http://agui-backend.agui.svc.cluster.local:8000
+#
+# Two different callers reach it, and they do not use the same URL:
+#   * the frontend POD, server-side, for the AG-UI SSE stream — that is BACKEND_URL
+#     in the frontend Deployment, and it is this Service name.
+#   * the user's BROWSER, for /api/me, /api/agents, /api/agui/<id>/health and the
+#     admin screen — that is NEXT_PUBLIC_BACKEND_URL, baked into the client
+#     bundle at image-build time, and it must be the public ingress hostname.
+#     A browser cannot resolve this Service name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agui-backend
+  namespace: agui
+  labels:
+    app.kubernetes.io/name: agui-backend
+    app.kubernetes.io/part-of: agui
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: agui-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

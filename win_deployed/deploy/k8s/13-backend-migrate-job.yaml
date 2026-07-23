@@ -1,0 +1,69 @@
+# Schema migration. Run this to completion BEFORE the backend Deployment, on
+# every upgrade that carries a new revision.
+#
+# On Postgres the schema belongs to Alembic: `init_db()` deliberately skips
+# `create_all` for any non-SQLite dialect (app/db.py explains why — an unstamped
+# database with all the tables already present is a state `alembic upgrade head`
+# cannot recover from). So without this Job the backend starts against a database
+# with no tables and every request fails on the first query.
+#
+# Plain `kubectl apply` gives no ordering, so enforce it:
+#
+#   kubectl apply -f 13-backend-migrate-job.yaml
+#   kubectl -n agui wait --for=condition=complete job/agui-migrate --timeout=5m
+#   kubectl apply -f 14-backend-deployment.yaml
+#
+# Under Helm this is a `pre-install,pre-upgrade` hook and the ordering is free.
+#
+# The Job name is immutable, so a rerun needs the previous one deleted first
+# (`kubectl -n agui delete job agui-migrate`). Add a version suffix per release
+# if you would rather keep the history.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agui-migrate
+  namespace: agui
+  labels:
+    app.kubernetes.io/name: agui-migrate
+    app.kubernetes.io/part-of: agui
+spec:
+  backoffLimit: 3
+  # Keep a failed Job's pod around long enough to read its logs.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agui-migrate
+        app.kubernetes.io/part-of: agui
+    spec:
+      restartPolicy: Never
+      # No IRSA needed: this talks to Postgres only, never to AWS.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alembic
+          # REPLACE: the same backend image tag the Deployment will run. A Job on
+          # an older image migrates to an older head and the new pods then fail.
+          image: REGISTRY/agui-backend:TAG
+          imagePullPolicy: IfNotPresent
+          # alembic.ini, alembic/ and app/ all sit at /app in the image, and
+          # alembic/env.py resolves DATABASE_URL exactly the way the app does.
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - secretRef:
+                name: agui-backend-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
