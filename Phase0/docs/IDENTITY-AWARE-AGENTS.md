@@ -19,10 +19,14 @@ browser (MSAL)                backend proxy                 AgentCore           
    │ X-Agent-Authorization: Bearer <ID token>                    │                      │
    │                              │                             │                      │
    │                     catalog.inbound_auth?                   │                      │
-   │                        ├─ iam  ─► SigV4 ───────────────────►│ (no identity)        │
-   │                        └─ jwt  ─► Authorization: Bearer ───►│ validates the JWT ──►│ claims
+   │                        ├─ iam  ─► SigV4 ───────────────────►│ (call authenticated) │
+   │                        └─ jwt  ─► Authorization: Bearer ───►│ validates the JWT    │
    │                                   (the ID token)            │ against the tenant   │
-   │                                                             │ discovery document   │
+   │                                                             │ discovery document,  │
+   │                                                             │ then CONSUMES it     │
+   │                          + AGENT_TOKEN_RELAY=1 ────────────►│ X-Amzn-…-Custom-… ──►│ claims
+   │                            (either mode — the only          │ (forwarded verbatim) │
+   │                             thing agent code ever reads)    │                      │
 ```
 
 Two tokens leave the browser, and that is not an accident. The platform's own
@@ -141,7 +145,15 @@ in AgentCore's custom forwardable headers:
 | Header | Carries | Used for |
 | --- | --- | --- |
 | `X-Amzn-Bedrock-AgentCore-Runtime-Custom-Graph-Token` | the platform's Graph token | Graph `/me` without an OBO provider |
-| `X-Amzn-Bedrock-AgentCore-Runtime-Custom-Id-Token` | the tenant-issued token | identity on an **IAM** runtime (local dev, smoke) |
+| `X-Amzn-Bedrock-AgentCore-Runtime-Custom-Id-Token` | the tenant-issued token | identity — on an IAM **and** a JWT runtime |
+
+The id-token relay is not an IAM-only convenience, and this is the single most
+surprising fact in this document: **AgentCore's JWT authorizer consumes the
+`Authorization` header.** It validates the bearer at the front door and the
+container never sees it, so a JWT runtime with the relay off gets no caller
+identity at all — the agent answers "no caller token reached this runtime" for a
+request AgentCore has already authenticated. The relay is therefore how identity
+reaches agent code under *both* inbound auth modes.
 
 No AWS-side setup, which is what makes the demo work in an account with no
 credential provider. Off by default: it hands a delegated user token to the
@@ -196,7 +208,8 @@ and synchronous, inside a tool.
 | `403 ACCESS_DENIED: Authorization method mismatch` | SigV4 sent to a JWT runtime (or the reverse). The catalog's `inbound_auth` disagrees with the runtime — re-sync the catalog. |
 | `403 ACCESS_DENIED: OAuth authorization failed: Failed to parse token` | AgentCore's authorizer rejected the bearer. Usually the Graph token was sent instead of the tenant-issued one. |
 | `401 Missing Authentication Token` from AgentCore | No `Authorization` header reached the runtime at all. |
-| Proxy 401 naming `X-Agent-Authorization` | SSO is off, or the browser could not mint the agent token. |
+| Proxy 401 naming `X-Agent-Authorization` | SSO is off, the browser could not mint the agent token, or a caller that is not the chat forgot to send it — the health probe did exactly that, and reported the refusal as "the agent isn't responding". |
+| Agent says "no caller token reached this runtime" on a **JWT** runtime | `AGENT_TOKEN_RELAY=1` is not set. The bearer authenticated the call and was consumed by the authorizer; only the relay reaches agent code. |
 | Agent says "not verified: Unable to find a signing key" | The token was not signed by the pinned tenant — check `ENTRA_TENANT_ID` on the runtime. |
 | Agent says "no Microsoft Graph token available" | Neither `GRAPH_OBO_PROVIDER_NAME` nor `AGENT_TOKEN_RELAY=1` is configured. Identity claims still work. |
 | Runtime never goes healthy after a deploy | The usual two: `aws-opentelemetry-distro` missing from the zip, or the container not listening on 8080. |
@@ -212,6 +225,14 @@ and still SigV4-signs the latter (`a2uidemo` health stayed green). Locally, a
 hand-built token drives the full entrypoint → context → tool → claims path, and
 JWKS verification really reaches the tenant key endpoint.
 
-**Not verified end to end:** a real Entra ID token from a browser sign-in, and
-the OBO exchange — both need an interactive Microsoft login (and, for OBO, a
-credential provider with a client secret). Those are the two steps left to a human.
+**Then a browser signed in (2026-07-23)** — the step left to a human above — and
+it found what no headless test could: AgentCore accepted the ID token, ran the
+agent, and the agent reported `auth.token_source: none`. The bearer authenticates
+the call and goes no further; the id-token relay, which the proxy had been
+suppressing under `jwt` precisely because the bearer was assumed to carry
+identity, is what agent code actually reads. The same sign-in exposed the health
+probe sending only the platform bearer, which made every JWT agent look down
+while its chat worked. Both are fixed.
+
+**Still not verified end to end:** the OBO exchange — it needs a credential
+provider backed by a confidential app registration with a client secret.

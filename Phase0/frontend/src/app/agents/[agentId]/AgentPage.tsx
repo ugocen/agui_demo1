@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { AgentChat } from "@/components/AgentChat";
-import { AuthGate, useAccessToken } from "@/components/AuthGate";
+import { AuthGate, useAccessToken, useAgentToken } from "@/components/AuthGate";
 import { agentColor, useCatalog, WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { BACKEND_URL } from "@/lib/config";
 import { newThreadId } from "@/lib/threads";
@@ -18,13 +18,23 @@ type Health = { alive: boolean; detail: string };
 // on its own a few seconds later.
 function AgentHealthBanner({ agentId, agentName }: { agentId: string; agentName: string }) {
   const token = useAccessToken();
+  // The probe opens a REAL AG-UI run, so it needs exactly the headers a run
+  // needs — including the second, tenant-issued token for agents whose runtime
+  // validates JWTs itself. Sending only the platform bearer made the proxy
+  // refuse every `inbound_auth: "jwt"` agent, and the banner reported that
+  // refusal as "the agent isn't responding" while the chat beside it — which
+  // does send both — worked fine.
+  const agentToken = useAgentToken();
   const [health, setHealth] = useState<Health | null>(null);
   // A probe runs on mount, so start in the checking state. setState below is only
   // reached inside async callbacks, so runProbe is safe to call from an effect.
   const [checking, setChecking] = useState(true);
 
   const runProbe = useCallback(() => {
-    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(agentToken ? { "X-Agent-Authorization": `Bearer ${agentToken}` } : {}),
+    };
     return fetch(`${BACKEND_URL}/api/agui/${agentId}/health`, { headers })
       .then(async (response) => {
         if (!response.ok) {
@@ -35,7 +45,7 @@ function AgentHealthBanner({ agentId, agentName }: { agentId: string; agentName:
       .then((data: Health) => setHealth(data))
       .catch((error) => setHealth({ alive: false, detail: String(error) }))
       .finally(() => setChecking(false));
-  }, [agentId, token]);
+  }, [agentId, token, agentToken]);
 
   // A manual retry is a user event, where synchronous feedback is fine.
   const retry = () => {
