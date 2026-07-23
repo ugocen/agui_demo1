@@ -10,18 +10,22 @@ what the container finds in the ``Authorization`` header:
 
 * **JWT inbound auth** (``authorizerConfiguration.customJWTAuthorizer``, what
   ``deploy_agent.py --auth=jwt`` configures) — the caller sends
-  ``Authorization: Bearer <Entra token>``, AgentCore validates it against the
-  tenant's OIDC discovery document *before* the container is reached, and
-  forwards the header unchanged (``Authorization`` is not on the runtime's
-  restricted-header list, so it reaches agent code). This is the deployment this
-  agent exists to demonstrate.
+  ``Authorization: Bearer <Entra token>`` and AgentCore validates it against the
+  tenant's OIDC discovery document *before* the container is reached. The
+  authorizer then **consumes** that header: it does not reach agent code, even
+  though ``Authorization`` is absent from the SDK's restricted-header list and
+  the SDK would happily forward it (``runtime/ag_ui.py`` special-cases it). This
+  file assumed the opposite until 2026-07-23, when a run AgentCore had already
+  accepted still resolved to ``token_source: none`` inside the container. So the
+  platform relay below is required under JWT inbound auth too — the ``AWS4-``
+  check remains the only thing that distinguishes the two modes here.
 * **IAM / SigV4 inbound auth** (the default, and what the other agents use) — the
   same header carries the AWS signature, ``AWS4-HMAC-SHA256 Credential=…``. It is
   never a user token, so a value starting with ``AWS4-`` is ignored here. The
-  platform proxy can instead relay the caller's Entra tokens in the runtime's
-  *custom* forwardable headers (``X-Amzn-Bedrock-AgentCore-Runtime-Custom-*``),
-  which keeps this agent working on an IAM runtime — local dev, the smoke test,
-  and any time before the JWT switch is made.
+  platform proxy relays the caller's Entra tokens in the runtime's *custom*
+  forwardable headers (``X-Amzn-Bedrock-AgentCore-Runtime-Custom-*``), which
+  keeps this agent working on an IAM runtime — local dev, the smoke test, and
+  any time before the JWT switch is made.
 
 Both paths end in the same place: a token, and where it came from.
 
@@ -174,10 +178,14 @@ def fingerprint(token: str) -> str:
 def caller_token() -> tuple[str | None, str]:
     """The caller's Entra token and how it reached us.
 
-    Sources, in order: the validated JWT AgentCore forwarded, then the platform
-    proxy's relay. `AWS4-…` in `Authorization` is the SigV4 signature of an
-    IAM-authorized invoke, never a user token — treating it as one would be how a
-    caller's *absence* of identity turns into a confusing parse error.
+    Sources, in order: an `Authorization` bearer, then the platform proxy's
+    relay. On AgentCore the relay is the one that fires — the JWT authorizer
+    consumes the bearer (see the module docstring) — but the header check is
+    kept first because it is what a non-AgentCore host, or a local
+    `python agent.py` run posting straight to /invocations, actually sends.
+    `AWS4-…` in `Authorization` is the SigV4 signature of an IAM-authorized
+    invoke, never a user token — treating it as one would be how a caller's
+    *absence* of identity turns into a confusing parse error.
     """
     headers = _headers()
     raw = headers.get("authorization", "")
@@ -459,9 +467,10 @@ def resolve_identity(*, with_profile: bool) -> dict:
         }
         if not token:
             result["notes"].append(
-                "No caller token reached this runtime. Under JWT inbound auth the Authorization header "
-                "carries it; under IAM inbound auth the backend proxy must relay it "
-                "(AGENT_TOKEN_RELAY=1). With SSO off (AUTH_MODE=iam) there is no user token to send."
+                "No caller token reached this runtime. Under BOTH inbound auth modes the backend proxy "
+                "must relay it (AGENT_TOKEN_RELAY=1) — under jwt the authorizer validates the bearer at "
+                "the front door and consumes it, so it never reaches agent code. With SSO off "
+                "(AUTH_MODE=iam) there is no user token to relay in the first place."
             )
             span.set_attribute("auth.authenticated", False)
             return result
