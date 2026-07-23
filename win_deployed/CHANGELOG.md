@@ -85,6 +85,69 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
   template now explains the fallback, how to point at the backend checkout, and
   that a Postgres catalog cannot be read by the script at all.
 
+### Added
+
+- **A fourth payload tree: `deploy/`, the Kubernetes manifests.** Namespace,
+  IRSA service account, ConfigMap, Secret template, migration Job, both
+  Deployments and Services, an optional HPA, and the ingress — plus a
+  `deploy/README.md` written for the EKS operator. It describes both components
+  and the pieces that belong to neither, so it is its own tree rather than
+  something tucked inside `backend/`; like the others it expands into a
+  self-contained repository.
+
+  `scripts/_payload.sh` now owns the list of trees in one place
+  (`PAYLOAD_TREES`). It was hardcoded separately in `build_packages.sh`,
+  `check_sync.sh`, `make_zips.sh` and `check_zips.sh`, which is four chances to
+  add a tree to the sync and have the drift check quietly not cover it.
+
+- **The container images actually ship now.** `Dockerfile` and `.dockerignore`
+  were added to the backend and frontend file lists in the previous change, but
+  `build_packages.sh` was never run afterwards — so the payload trees, and every
+  zip built from them, contained neither. The whole containerisation effort was
+  invisible to the enterprise side. Re-synced; `check_sync.sh` is green again.
+
+### Changed
+
+- **On PostgreSQL the backend no longer creates its own tables — run
+  `alembic upgrade head` first.** `init_db()` now does that only for the local
+  SQLite default, where zero-setup dev is the point.
+
+  It is not merely redundant elsewhere: `create_all` writes the tables but no
+  `alembic_version` row, so a pod that reached the database before the migration
+  left Alembic looking at an unstamped database that already had every table —
+  `alembic upgrade head` then fails on its first CREATE TABLE, and no rerun
+  clears it. With several replicas, every pod raced into the same create. The
+  migration Job in `deploy/k8s/` is the supported ordering, and
+  `backend/.env.example` now says so at `DATABASE_URL`.
+
+### Fixed
+
+- **The backend image ran as root.** A cluster enforcing the `restricted` Pod
+  Security Standard rejects that at admission, so the image could not be
+  scheduled at all — while the frontend image had had a non-root user all along.
+  Both now run as uid 1001, and the namespace enforces `restricted` so a
+  regression is caught rather than shipped.
+
+- **Neither `.dockerignore` excluded what it claimed to.** Docker matches those
+  patterns with Go's `filepath.Match`, which is not recursive: a bare
+  `__pycache__/` matches only the build-context root, so `app/__pycache__/` and
+  `alembic/versions/__pycache__/` were baked into the backend image. Now `**/`.
+
+- **The frontend image could be built into a silently broken SSO state.**
+  `NEXT_PUBLIC_AUTH_MODE` defaulted to `entra` while the tenant and client ids
+  defaulted to empty strings, so a build with no `--build-arg` produced an image
+  that built cleanly, looked configured, and then failed in the browser at MSAL
+  init. The default is now `iam` (matching `next.config.ts`) and `entra` without
+  both ids fails the build with the reason.
+
+- **The Dockerfile's example told you to bake the wrong backend URL.** It passed
+  `NEXT_PUBLIC_BACKEND_URL=http://agui-backend:8000` — an in-cluster Service
+  name, in the one variable that is read in the **browser**, which cannot
+  resolve it. That is the app loading and then every API call failing in the
+  console. The header now separates the two: `NEXT_PUBLIC_BACKEND_URL` is the
+  backend's public ingress hostname baked at build time, `BACKEND_URL` is the
+  in-cluster URL the frontend pod reads at run time.
+
 ## [1.10.0] — 2026-07-22
 
 Carries PRs #50, #51, #52, #53 and #54 into the enterprise payload. The

@@ -26,9 +26,9 @@ payload_sync "$SRC" "$OUT"
 echo "==> Writing MANIFEST.sha256"
 (
   cd "$OUT"
-  # Hash every shipped file (the three payload trees), excluding our own tooling
+  # Hash every shipped file (every payload tree), excluding our own tooling
   # and generated artifacts, so drift in either code or docs is visible.
-  find backend frontend agents -type f \
+  find "${PAYLOAD_TREES[@]}" -type f \
     ! -name '.DS_Store' ! -path '*/node_modules/*' ! -path '*/.next/*' \
     ! -path '*/__pycache__/*' ! -path '*/build/*' ! -name '*.zip' \
     | LC_ALL=C sort \

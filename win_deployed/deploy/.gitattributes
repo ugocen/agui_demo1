@@ -1,0 +1,19 @@
+# Normalize line endings. These repos are cloned on Windows but the manifests are
+# applied from WSL2 (Ubuntu). YAML tolerates CRLF, but a heredoc or a value that
+# ends up carrying a stray ^M does not, and `kubectl apply` reports it as a
+# baffling parse error. Force LF for everything text.
+* text=auto eol=lf
+
+# Be explicit for the file types that break loudest with CRLF.
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.sh      text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+.env*     text eol=lf
+
+# Binary — never touch these.
+*.zip     binary
+*.png     binary
+*.jpg     binary
+*.ico     binary

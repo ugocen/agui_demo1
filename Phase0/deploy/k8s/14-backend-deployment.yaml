@@ -1,0 +1,98 @@
+# The AG-UI proxy. Thin by design: it SigV4-signs the AgentCore call and pipes
+# the SSE stream straight back, unbuffered (architecture invariant 1). Almost
+# every setting below follows from "this pod holds long-lived streaming
+# connections", not from ordinary request/response assumptions.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agui-backend
+  namespace: agui
+  labels:
+    app.kubernetes.io/name: agui-backend
+    app.kubernetes.io/part-of: agui
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agui-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agui-backend
+        app.kubernetes.io/part-of: agui
+    spec:
+      serviceAccountName: agui-backend
+      # An AG-UI run can stream for minutes. The default 30s grace period cuts
+      # every in-flight conversation mid-answer on any rollout or scale-down.
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backend
+          # REPLACE: your registry and tag.
+          image: REGISTRY/agui-backend:TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: agui-backend-config
+            - secretRef:
+                name: agui-backend-secrets
+          # /healthz is unauthenticated and does not touch the database, which is
+          # what makes it safe as a liveness probe: a probe that queried Postgres
+          # would restart every pod during a database blip and turn a recoverable
+          # outage into a crash loop.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24 # ~2 min for the AgentCore catalog sync at boot
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # readOnlyRootFilesystem needs a writable /tmp: botocore and the
+            # IRSA credential provider both write there. The image sets
+            # PYTHONDONTWRITEBYTECODE=1, so nothing else needs to write at all.
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # No CPU limit on purpose: CFS throttling on a proxy holding open
+              # SSE streams shows up as stalled tokens mid-answer, and the
+              # request above is what actually reserves capacity.
+              memory: 512Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,44 @@
+# Optional. Read the scale-down note before enabling this.
+#
+# The backend is a streaming proxy: it spends an AG-UI run waiting on AgentCore,
+# not burning CPU, so CPU utilisation lags real load and this will scale up late.
+# Concurrent connections is the honest signal — if the cluster runs KEDA or a
+# Prometheus adapter, drive the HPA off that instead and treat the CPU metric
+# below as a floor.
+#
+# Scale-down is the part that bites. Removing a pod terminates the SSE streams it
+# holds, and a user sees an answer stop mid-sentence. The stabilisation window
+# below plus terminationGracePeriodSeconds: 120 on the Deployment give in-flight
+# runs time to finish; shortening either one trades user-visible truncation for
+# a slightly faster scale-down.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agui-backend
+  namespace: agui
+  labels:
+    app.kubernetes.io/name: agui-backend
+    app.kubernetes.io/part-of: agui
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agui-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30

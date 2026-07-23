@@ -6,6 +6,7 @@ from app.env_boot import load_env
 # Shared with alembic/env.py so both entry points resolve config identically.
 load_env()
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -52,7 +53,11 @@ async def log_requests(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        o.strip()
+        for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+        if o.strip()
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

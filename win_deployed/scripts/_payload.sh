@@ -4,7 +4,8 @@
 # file set — there is exactly one definition of "what ships".
 #
 # Rules encoded here:
-#  * backend/ and frontend/ are copied verbatim from Phase0/ (single source; no fork).
+#  * backend/, frontend/ and deploy/ are copied verbatim from Phase0/ (single
+#    source; no fork).
 #  * agents/ ship from the ENTERPRISE fork at cloud_deploy/agents/, NOT from
 #    Phase0/agents/. The delivered package must carry the gateway-only provider:
 #    the enterprise account has no Bedrock model access, and an agent that could
@@ -17,6 +18,17 @@
 #    OWNED by win_deployed/ and are never overwritten by the sync.
 
 set -euo pipefail
+
+# The payload trees. Every script that iterates the payload reads this array, so
+# adding a tree is one edit here rather than four remembered edits across
+# build_packages.sh, check_sync.sh, make_zips.sh and check_zips.sh — the way a
+# tree gets added to the sync but forgotten by the drift check.
+PAYLOAD_TREES=(
+  backend
+  frontend
+  agents
+  deploy
+)
 
 AGENT_DIRS=(
   sdlc-planner-strands
@@ -45,6 +57,16 @@ BACKEND_FILES=(
   requirements.txt
   Dockerfile
   .dockerignore
+)
+
+# Directories copied verbatim from Phase0/deploy/ into win_deployed/deploy/.
+# The Kubernetes manifests ship as their own payload tree rather than inside
+# backend/ or frontend/, because they describe BOTH components plus the
+# ingress, migration Job and IRSA service account that belong to neither — and
+# because each payload tree becomes its own repository on the enterprise side,
+# which is the right shape for manifests.
+DEPLOY_DIRS=(
+  k8s
 )
 
 # Hand-written enterprise files: OWNED by win_deployed/, with no Phase0/
@@ -79,7 +101,7 @@ EXCLUDES=(
   --exclude 'next-env.d.ts'
 )
 
-# Materialize the three payload trees into $1 (a directory).
+# Materialize the four payload trees into $1 (a directory).
 # Copies CODE ONLY — never the hand-written docs/.gitignore/.env examples.
 payload_sync() {
   local src="$1" out="$2"
@@ -101,6 +123,15 @@ payload_sync() {
   rsync -a "${EXCLUDES[@]}" "$src/frontend/public/" "$out/frontend/public/"
   for f in "${FRONTEND_FILES[@]}"; do
     cp "$src/frontend/$f" "$out/frontend/$f"
+  done
+
+  # ---- deploy (Kubernetes manifests) ----
+  mkdir -p "$out/deploy"
+  local d
+  for d in "${DEPLOY_DIRS[@]}"; do
+    rm -rf "${out:?}/deploy/$d"
+    mkdir -p "$out/deploy/$d"
+    rsync -a "${EXCLUDES[@]}" "$src/deploy/$d/" "$out/deploy/$d/"
   done
 
   # ---- agents (from the enterprise fork, see header) ----

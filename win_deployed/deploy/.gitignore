@@ -1,0 +1,36 @@
+# --- Secrets ------------------------------------------------------------------
+# A filled-in Secret manifest carries the database password in cleartext (base64
+# is encoding, not encryption — `kubectl get secret -o yaml | base64 -d` is the
+# whole attack). Commit only k8s/12-backend-secret.example.yaml, the template.
+*-secret.yaml
+*-secrets.yaml
+secret.yaml
+secrets.yaml
+!k8s/12-backend-secret.example.yaml
+
+# .env files have no business here, but people paste them in anyway.
+.env
+.env.*
+!.env.example
+
+# --- Rendered / local output --------------------------------------------------
+# Output of `kustomize build`, `helm template`, or a local envsubst pass. It is
+# generated from the manifests next to it, so it is not source.
+rendered/
+*.rendered.yaml
+*.generated.yaml
+
+# kubeconfigs — cluster credentials, never source.
+kubeconfig
+kubeconfig-*
+*.kubeconfig
+
+# --- Editors / OS cruft -------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+._*
+Thumbs.db
+desktop.ini

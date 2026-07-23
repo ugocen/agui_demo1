@@ -2,7 +2,8 @@
 # Produce the zips to hand to the enterprise environment (which has no git access).
 #
 # Usage:  win_deployed/scripts/make_zips.sh
-# Output: win_deployed/dist/agui-<name>-<version>.zip  (three zips + a checksum file)
+# Output: win_deployed/dist/agui-<name>-<version>.zip  (one per payload tree,
+#         plus a checksum file)
 #
 # These are the SOURCE payloads. The deployable AgentCore packages are a separate
 # artifact under dist/agentcore/ — run make_agentcore_zips.sh for those. This
@@ -16,6 +17,9 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=_payload.sh
+source "$HERE/_payload.sh"   # PAYLOAD_TREES — the one definition of what ships
+
 OUT="$(cd "$HERE/.." && pwd)"
 DIST="$OUT/dist"
 VERSION="$(tr -d '[:space:]' < "$OUT/VERSION")"
@@ -25,11 +29,11 @@ VERSION="$(tr -d '[:space:]' < "$OUT/VERSION")"
 # Clear only what this script owns. dist/agentcore/ belongs to
 # make_agentcore_zips.sh and must survive: a plain `rm -rf "$DIST"` here silently
 # deleted ~151 MB of committed, deployable packages and left dist/ looking
-# complete, because the three zips below reappear immediately.
+# complete, because the source zips below reappear immediately.
 mkdir -p "$DIST"
 rm -f "$DIST"/agui-*.zip "$DIST/SHA256SUMS.txt"
 
-for tree in backend frontend agents; do
+for tree in "${PAYLOAD_TREES[@]}"; do
   [ -d "$OUT/$tree" ] || { echo "FAIL: missing $OUT/$tree — run build_packages.sh first" >&2; exit 1; }
   zip_path="$DIST/agui-$tree-$VERSION.zip"
   echo "==> Packing $tree -> $(basename "$zip_path")"
@@ -51,5 +55,5 @@ echo
 echo "OK: zips ready in win_deployed/dist/ (version $VERSION)"
 ls -lh "$DIST" | sed 's/^/    /'
 echo
-echo "Send these three zips. On the enterprise machine each unzips to a folder that"
+echo "Send these ${#PAYLOAD_TREES[@]} zips. On the enterprise machine each unzips to a folder that"
 echo "is initialised as its own Bitbucket repo — see win_deployed/README.md."

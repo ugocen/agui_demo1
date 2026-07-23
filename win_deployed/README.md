@@ -4,12 +4,12 @@
 
 This directory is the **versioned staging area** for what we hand to the
 enterprise environment (Windows 11 + WSL2 Ubuntu, no git access, no internet
-git). It is **not** shipped as-is: only the three payload folders —
-`backend/`, `frontend/`, `agents/` — are zipped and sent. Everything else here
-(`scripts/`, `MANIFEST.sha256`, `VERSION`, `CHANGELOG.md`, this README) is our
-tooling and stays behind.
+git). It is **not** shipped as-is: only the four payload folders —
+`backend/`, `frontend/`, `agents/`, `deploy/` — are zipped and sent. Everything
+else here (`scripts/`, `MANIFEST.sha256`, `VERSION`, `CHANGELOG.md`, this
+README) is our tooling and stays behind.
 
-The enterprise operator never sees this file. They get three zips, each of
+The enterprise operator never sees this file. They get four zips, each of
 which expands into a self-contained project directory with its own README
 written for Windows 11 + WSL2.
 
@@ -51,41 +51,60 @@ win_deployed/
 ├── README.md              # this file — internal index (not shipped)
 ├── CHANGELOG.md           # what changed per package version (not shipped)
 ├── VERSION                # package version of what we send (this file is the source of truth)
-├── MANIFEST.sha256        # sha256 of every shipped file (78 files) — the record of what a version contained
+├── MANIFEST.sha256        # sha256 of every shipped file (138 files) — the record of what a version contained
 ├── scripts/               # our tooling (not shipped)
-│   ├── _payload.sh        # THE definition of what ships; sourced by the two scripts below
+│   ├── _payload.sh        # THE definition of what ships (PAYLOAD_TREES + the file
+│   │                      #   lists); sourced by every script below
 │   ├── build_packages.sh  # re-sync payload from Phase0/ + rewrite MANIFEST.sha256
 │   ├── check_sync.sh      # read-only drift check: has Phase0/ moved on?
-│   ├── make_zips.sh       # produce the 3 SOURCE zips dist/agui-*-<VERSION>.zip
-│   └── make_agentcore_zips.sh  # produce the 5 DEPLOYABLE dist/agentcore/<agent>-<VERSION>.zip
+│   ├── make_zips.sh       # produce the 4 SOURCE zips dist/agui-*-<VERSION>.zip
+│   ├── check_zips.sh      # read-only drift check: were the zips rebuilt?
+│   └── make_agentcore_zips.sh  # produce the 7 DEPLOYABLE dist/agentcore/<agent>-<VERSION>.zip
 ├── dist/                  # generated zips (TRACKED)
-│   └── agentcore/         # the packages you upload to AgentCore (~151 MB)
+│   └── agentcore/         # the packages you upload to AgentCore (~266 MB)
 │
-├── backend/               # PAYLOAD 1 -> own Bitbucket repo (21 files)
+├── backend/               # PAYLOAD 1 -> own Bitbucket repo (25 files)
 │   ├── app/               # verbatim from Phase0/backend/app/
 │   ├── alembic/           # verbatim from Phase0/backend/alembic/
 │   ├── alembic.ini        # verbatim
 │   ├── requirements.txt   # verbatim (pinned)
+│   ├── Dockerfile, .dockerignore                               # verbatim
 │   └── (README.md, .gitignore, .gitattributes, .env.example)   # ours
 │
-├── frontend/              # PAYLOAD 2 -> own Bitbucket repo (34 files)
+├── frontend/              # PAYLOAD 2 -> own Bitbucket repo (53 files)
 │   ├── src/               # verbatim from Phase0/frontend/src/
 │   ├── public/            # verbatim
 │   ├── package.json, package-lock.json, tsconfig.json,
 │   │   next.config.ts, eslint.config.mjs                       # verbatim
+│   ├── Dockerfile, .dockerignore                               # verbatim
 │   └── (README.md, .gitignore, .gitattributes, .env.local.example)  # ours
 │
-└── agents/                # PAYLOAD 3 -> own folder/repo (23 files)
-    ├── sdlc-planner-strands/        # verbatim
-    ├── release-readiness-langgraph/ # verbatim
-    ├── bug-report-strands/          # verbatim
-    ├── a2ui-demo-strands/           # verbatim
-    ├── press-release-strands/       # verbatim
-    ├── scripts/
-    │   ├── build_zip.sh             # verbatim from Phase0/scripts/ (chmod +x by the sync)
-    │   └── deploy_agent.py          # verbatim from Phase0/scripts/
-    └── (README.md, .gitignore, .gitattributes, .env.example)   # ours
+├── agents/                # PAYLOAD 3 -> own folder/repo (46 files)
+│   ├── sdlc-planner-strands/        # verbatim
+│   ├── release-readiness-langgraph/ # verbatim
+│   ├── bug-report-strands/          # verbatim
+│   ├── a2ui-demo-strands/           # verbatim
+│   ├── press-release-strands/       # verbatim
+│   ├── jira-story-strands/          # verbatim
+│   ├── whoami-strands/              # verbatim
+│   ├── scripts/
+│   │   ├── build_zip.sh             # verbatim from Phase0/scripts/ (chmod +x by the sync)
+│   │   ├── deploy_agent.py          # verbatim from Phase0/scripts/
+│   │   ├── invoke_agentcore.py      # verbatim from Phase0/scripts/
+│   │   └── smoke_test.py            # verbatim from Phase0/scripts/
+│   └── (README.md, .gitignore, .gitattributes, .env.example)   # ours
+│
+└── deploy/                # PAYLOAD 4 -> own folder/repo (14 files)
+    ├── k8s/               # verbatim from Phase0/deploy/k8s/ — namespace, IRSA
+    │                      #   service account, config, secret template, migration
+    │                      #   Job, both Deployments + Services, HPA, ingress
+    └── (README.md, .gitignore, .gitattributes)                 # ours
 ```
+
+`deploy/` describes both components plus the ingress, the migration Job and the
+IRSA service account that belong to neither, which is why it is its own tree
+rather than something tucked inside `backend/`. It ships no application code —
+it deploys the images built from the other two.
 
 Both `build_zip.sh` and `deploy_agent.py` resolve `PHASE0_DIR` as
 `<script-dir>/..`, so in the standalone layout they operate on `agents/` itself:
@@ -103,7 +122,7 @@ payload works without a parent directory.
 win_deployed/scripts/build_packages.sh
 ```
 
-Copies code from `Phase0/` into the three payload trees (`rsync -a` with the
+Copies code from `Phase0/` into the four payload trees (`rsync -a` with the
 exclude list in `_payload.sh`), then rewrites `MANIFEST.sha256` by hashing every
 file under `backend/ frontend/ agents/`. Safe to re-run; idempotent. It never
 overwrites the hand-written enterprise files. Prints the file count and reminds
@@ -264,7 +283,7 @@ as a signal, and make sure `VERSION` and `CHANGELOG.md` were bumped to match.
 
 ## Delivery instructions (what to tell the enterprise side)
 
-1. Send the three zips from `win_deployed/dist/` plus `SHA256SUMS.txt`.
+1. Send the four zips from `win_deployed/dist/` plus `SHA256SUMS.txt`.
 2. **Unzip inside WSL, on the Linux filesystem** (e.g. `~/apps/`), **not** under
    `/mnt/c/...`. `/mnt/c` is slow and breaks Next.js file-watching/hot-reload.
 3. After unzipping, shell scripts may have lost their exec bit (the zips are
@@ -273,7 +292,7 @@ as a signal, and make sure `VERSION` and `CHANGELOG.md` were bumped to match.
    chmod +x agents/scripts/build_zip.sh
    ```
 4. Each folder becomes **its own Bitbucket repo** — `backend/` and `frontend/`
-   at minimum; `agents/` is the third folder and can be its own repo too. Each
+   at minimum; `agents/` and `deploy/` can each be their own repo too. Each
    already carries its own `.gitignore` and `.gitattributes` (LF enforced).
    Advise `git config core.autocrlf false` in WSL.
 5. Each folder has its own `README.md` with the full Windows 11 + WSL2 setup,
@@ -289,10 +308,10 @@ as a signal, and make sure `VERSION` and `CHANGELOG.md` were bumped to match.
 
 | # | Stakeholder requirement | How this package satisfies it | Honest status |
 | --- | --- | --- | --- |
-| 1 | Only what is needed ships: a backend, a frontend, the agents | Exactly three payload trees, 78 files (66 code synced from `Phase0/` + 12 hand-written enterprise files), defined once in `scripts/_payload.sh`. Nothing else is copied. | **Met** |
+| 1 | Only what is needed ships: a backend, a frontend, the agents | Four payload trees, 138 files, defined once in `scripts/_payload.sh` (`PAYLOAD_TREES` plus the per-tree file lists). Nothing else is copied. The fourth tree, `deploy/`, is the Kubernetes manifests — no application code, and it did not exist while the target was a single Windows host. | **Met** |
 | 2 | No Turkish text anywhere; everything in English | Internal docs (`PRESENTATION-AGUI-A2UI.md`, `docs/`) are never copied; all shipped READMEs and templates are written fresh in English. | **Met** — but it is a review discipline, not a mechanical check. There is no automated Turkish-text linter; re-read new docs before shipping. |
 | 3 | Agents ready for the GenAI marketplace API gateway, under one `agents/` folder; AgentCore deploy explained | All five agents in one `agents/` folder with `scripts/build_zip.sh` + `scripts/deploy_agent.py`. The agents are **gateway-only** — no Amazon Bedrock code path exists in this build, and `BEDROCK_ENDPOINT_URL` + `BEDROCK_API_KEY` + `BEDROCK_MODEL_ID` are all mandatory (identical `model_factory.py` in all five). `agents/README.md` documents the deploy process end to end. | **Met** — caveat: the gateway itself has not been exercised from here; `BEDROCK_API_KEY` is blank in the template and the operator fills it. If the gateway does not proxy `converse-stream`, set `BEDROCK_STREAMING=false`. |
-| 4 | No git on the enterprise side — zip delivery, separate folders | `make_zips.sh` produces three independent zips; no git metadata, no cross-folder references. | **Met** |
+| 4 | No git on the enterprise side — zip delivery, separate folders | `make_zips.sh` produces one independent zip per payload tree; no git metadata, no cross-folder references. | **Met** |
 | 5 | `backend/` and `frontend/` each get their own `.gitignore` and `README.md`, for Windows 11 + WSL2 | Present in both (plus `agents/`), hand-written and owned by `win_deployed/`, protected from the sync. `.gitattributes` added on top for LF enforcement. | **Met** |
 | 6 | Nothing about our dev environment ships | `.claude/`, `.agents/`, `CLAUDE.md`, `AGENTS.md` excluded twice — in `_payload.sh` `EXCLUDES` and again in `make_zips.sh` `-x` patterns. | **Met** |
 | 7 | `win_deployed/` is versioned and diffable against `Phase0/` | `VERSION` + `CHANGELOG.md` + `MANIFEST.sha256`; `check_sync.sh` gives a machine-checkable in-sync/drift verdict for source → payload tree, and `check_zips.sh` does the same for payload tree → the archives in `dist/`. | **Met, with the caveats below.** |

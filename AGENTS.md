@@ -72,8 +72,9 @@ the one deliberate fork — the agents — see invariants 4 and 7. Deep backgrou
    `model_factory.py` is gateway-only. Everything else in that copy is kept
    byte-identical to `Phase0/agents/<a>/` by the sync + gate scripts. The
    enterprise delivery in `win_deployed/` therefore packages **backend/frontend
-   from `Phase0/` and agents from `cloud_deploy/`**. See
-   `cloud_deploy/README.md`.
+   from `Phase0/` and agents from `cloud_deploy/`** — plus the Kubernetes
+   manifests from `Phase0/deploy/`, a fourth payload tree that carries no
+   application code. See `cloud_deploy/README.md`.
 
 ## Commands
 
@@ -179,6 +180,15 @@ in `cloud_deploy/README.md` under "Logs and traces".
 - **Change the LLM provider:** `Phase0/agents/*/model_factory.py` (Bedrock) or
   `cloud_deploy/agents/*/model_factory.py` (gateway) — never both in one edit,
   and never add the other's provider to either (the gate rejects it).
+- **Deploy to Kubernetes / EKS:** `Phase0/deploy/k8s/` — namespace, IRSA service
+  account, config, Secret template, Alembic migration Job, both Deployments +
+  Services, HPA, ingress. It ships to the enterprise as its own payload tree
+  (`win_deployed/deploy/`, operator doc in its `README.md`). Two things there
+  are not tuning: the ingress must have response buffering **off** or the SSE
+  stream arrives as one block at the end of the run (invariant 1, one hop
+  further out), and the migration Job must complete before the backend
+  Deployment — on Postgres the app deliberately does not create its own tables
+  (`Phase0/backend/app/db.py`).
 - **AWS facts and setup:** `.agents/rules/40-aws.md`, `Phase0/aws-setup/`.
 
 ## Verify

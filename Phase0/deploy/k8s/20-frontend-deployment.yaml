@@ -1,0 +1,103 @@
+# Next.js 16 standalone server. It is not a static site: the route handler at
+# /api/copilotkit/[[...path]] runs the self-hosted CopilotKit runtime in this
+# pod and is the server-side half of the AG-UI SSE stream.
+#
+# Config splits across build time and run time, and the split is not optional:
+#   * NEXT_PUBLIC_* are baked into the client bundle by `docker build`
+#     --build-arg. They CANNOT be changed here — setting them in this env block
+#     changes nothing, because the values are already compiled into the
+#     JavaScript the browser downloads. A new tenant id means a new image.
+#   * BACKEND_URL below is read at run time by the route handler and is the only
+#     backend URL that belongs in pod env.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agui-frontend
+  namespace: agui
+  labels:
+    app.kubernetes.io/name: agui-frontend
+    app.kubernetes.io/part-of: agui
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agui-frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agui-frontend
+        app.kubernetes.io/part-of: agui
+    spec:
+      # Same reason as the backend: this pod holds the browser end of the SSE
+      # stream, so a 30s grace period truncates answers on every rollout.
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          # REPLACE: your registry and tag. The tag is tied to one set of
+          # NEXT_PUBLIC_* build args — see the header above.
+          image: REGISTRY/agui-frontend:TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            # Server-side only, in-cluster. Not the browser's backend URL.
+            - name: BACKEND_URL
+              value: http://agui-backend.agui.svc.cluster.local:8000
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Next.js writes its fetch cache under .next/cache at run time, which
+            # a read-only root filesystem otherwise refuses. emptyDir, not a PVC:
+            # the cache is per-pod and disposable by design.
+            - name: next-cache
+              mountPath: /app/.next/cache
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # No CPU limit — see the backend Deployment for why throttling a
+              # streaming hop is worse than the alternative.
+              memory: 512Mi
+      volumes:
+        - name: next-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
