@@ -21,8 +21,9 @@ request to that agent is signed the wrong way:
   the platform's bearer: the SPA sends the platform a Microsoft Graph access
   token, which no OIDC authorizer can validate (see app/auth.py), so the browser
   sends a second, tenant-issued token in `X-Agent-Authorization` and that is what
-  is signed with. Note that authenticating the call is ALL the bearer does: the
-  authorizer consumes it, so agent code never sees it (see the relay below).
+  is signed with. Whether agent code also SEES that bearer is a separate
+  question, answered by the runtime's `requestHeaderAllowlist` — see the relay
+  below and RELAY_HEADERS in scripts/deploy_agent.py.
 
 Layer B (backend -> AgentCore) is therefore no longer "always SigV4" — it is
 "always what the runtime is configured to accept". Layer A (browser -> backend)
@@ -30,12 +31,12 @@ is untouched: every route still goes through `require_platform_access`, so a JWT
 agent is not a way around platform sign-in.
 
 Optionally (AGENT_TOKEN_RELAY=1) the caller's tokens are also passed to the agent
-in AgentCore's custom forwardable headers. This is the ONLY way an agent learns
-who is asking — under iam because nothing else carries the caller, and under jwt
-because the authorizer consumes the bearer before the container is reached — and
-it is also what gives the agent a Graph token when no AgentCore Identity OBO
-provider is configured. Off by default: it hands a delegated user token to the
-runtime, and no other agent has any use for one.
+in AgentCore's custom forwardable headers. Under iam this is the only thing that
+carries the caller at all, and in both modes it is what gives the agent a Graph
+token when no AgentCore Identity OBO provider is configured. Off by default: it
+hands a delegated user token to the runtime, and no other agent has any use for
+one. Sending a header is not the same as the agent receiving it — the runtime
+must allowlist it (scripts/deploy_agent.py), or AgentCore drops it in transit.
 """
 
 import json
@@ -123,14 +124,13 @@ def upstream_auth_headers(
             headers[GRAPH_TOKEN_RELAY_HEADER] = graph_token
         entra_token = agent_token(request)
         if entra_token:
-            # Relayed under jwt TOO, and that is not redundancy. AgentCore's JWT
-            # authorizer CONSUMES the Authorization header: it validates the
-            # bearer at the front door and the container never sees it, so an
-            # agent behind jwt inbound auth reads no caller at all unless the
-            # token also arrives in a forwardable custom header. Observed
-            # 2026-07-23 — a run that AgentCore had accepted (the runtime is
-            # JWT-only, so the bearer was valid by construction) still reported
-            # `auth.token_source: none` from inside the container.
+            # Relayed under jwt too. Whether the agent ALSO sees the bearer
+            # depends on the runtime's requestHeaderAllowlist (deploy_agent.py
+            # allowlists `Authorization` for a JWT runtime), and a relay that
+            # only works under one inbound auth mode is a relay the agent cannot
+            # rely on. Both headers are dropped in transit unless the runtime
+            # allowlists them — that, not this branch, is what left the agent
+            # anonymous on 2026-07-23.
             headers[ID_TOKEN_RELAY_HEADER] = entra_token
 
     if inbound_auth != "jwt":

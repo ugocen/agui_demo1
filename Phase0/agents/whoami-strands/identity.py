@@ -10,22 +10,23 @@ what the container finds in the ``Authorization`` header:
 
 * **JWT inbound auth** (``authorizerConfiguration.customJWTAuthorizer``, what
   ``deploy_agent.py --auth=jwt`` configures) — the caller sends
-  ``Authorization: Bearer <Entra token>`` and AgentCore validates it against the
-  tenant's OIDC discovery document *before* the container is reached. The
-  authorizer then **consumes** that header: it does not reach agent code, even
-  though ``Authorization`` is absent from the SDK's restricted-header list and
-  the SDK would happily forward it (``runtime/ag_ui.py`` special-cases it). This
-  file assumed the opposite until 2026-07-23, when a run AgentCore had already
-  accepted still resolved to ``token_source: none`` inside the container. So the
-  platform relay below is required under JWT inbound auth too — the ``AWS4-``
-  check remains the only thing that distinguishes the two modes here.
+  ``Authorization: Bearer <Entra token>``, AgentCore validates it against the
+  tenant's OIDC discovery document *before* the container is reached, and then
+  forwards it **only if the runtime allowlists it**
+  (``requestHeaderConfiguration.requestHeaderAllowlist``). That allowlist is the
+  fact this file got wrong until 2026-07-23: NOTHING reaches agent code without
+  it, so a run AgentCore had just authenticated resolved to
+  ``token_source: none`` and this agent saw two platform-injected headers and no
+  token. Not a restricted-header problem — ``Authorization`` is absent from that
+  list and the SDK special-cases it — simply a header the runtime never asked for.
 * **IAM / SigV4 inbound auth** (the default, and what the other agents use) — the
   same header carries the AWS signature, ``AWS4-HMAC-SHA256 Credential=…``. It is
   never a user token, so a value starting with ``AWS4-`` is ignored here. The
   platform proxy relays the caller's Entra tokens in the runtime's *custom*
   forwardable headers (``X-Amzn-Bedrock-AgentCore-Runtime-Custom-*``), which
   keeps this agent working on an IAM runtime — local dev, the smoke test, and
-  any time before the JWT switch is made.
+  any time before the JWT switch is made. Those need the same allowlist: the
+  prefix makes a header eligible for it, never exempt from it.
 
 Both paths end in the same place: a token, and where it came from.
 
@@ -179,10 +180,8 @@ def caller_token() -> tuple[str | None, str]:
     """The caller's Entra token and how it reached us.
 
     Sources, in order: an `Authorization` bearer, then the platform proxy's
-    relay. On AgentCore the relay is the one that fires — the JWT authorizer
-    consumes the bearer (see the module docstring) — but the header check is
-    kept first because it is what a non-AgentCore host, or a local
-    `python agent.py` run posting straight to /invocations, actually sends.
+    relay. Which one arrives is a property of the runtime's header allowlist
+    (see the module docstring), so both are checked and neither is assumed.
     `AWS4-…` in `Authorization` is the SigV4 signature of an IAM-authorized
     invoke, never a user token — treating it as one would be how a caller's
     *absence* of identity turns into a confusing parse error.
@@ -467,10 +466,10 @@ def resolve_identity(*, with_profile: bool) -> dict:
         }
         if not token:
             result["notes"].append(
-                "No caller token reached this runtime. Under BOTH inbound auth modes the backend proxy "
-                "must relay it (AGENT_TOKEN_RELAY=1) — under jwt the authorizer validates the bearer at "
-                "the front door and consumes it, so it never reaches agent code. With SSO off "
-                "(AUTH_MODE=iam) there is no user token to relay in the first place."
+                "No caller token reached this runtime. Either this runtime does not allowlist the header "
+                "that carries it (requestHeaderAllowlist — AgentCore drops every header the runtime does "
+                "not ask for, including Authorization), or the backend proxy is not relaying it "
+                "(AGENT_TOKEN_RELAY=1). With SSO off (AUTH_MODE=iam) there is no user token to send at all."
             )
             span.set_attribute("auth.authenticated", False)
             return result
