@@ -35,12 +35,16 @@ FRONTEND_FILES=(
   tsconfig.json
   next.config.ts
   eslint.config.mjs
+  Dockerfile
+  .dockerignore
 )
 
 # Files copied verbatim into win_deployed/backend/
 BACKEND_FILES=(
   alembic.ini
   requirements.txt
+  Dockerfile
+  .dockerignore
 )
 
 # Hand-written enterprise files: OWNED by win_deployed/, with no Phase0/

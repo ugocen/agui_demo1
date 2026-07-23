@@ -1,0 +1,33 @@
+# Dependencies & build output
+node_modules/
+.next/
+out/
+
+# Environment files (secrets — never in the image)
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Dev/agent tooling
+.claude/
+.agents/
+CLAUDE.md
+AGENTS.md
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+
+# Build artifacts
+*.zip
+*.tsbuildinfo
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docs
+README.md
