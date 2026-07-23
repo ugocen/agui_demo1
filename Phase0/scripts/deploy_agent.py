@@ -455,31 +455,45 @@ def wait_until_ready(control, runtime_id: str) -> dict:
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = [a for a in sys.argv[1:] if a.startswith("--")]
-    known = ("--runtime=", "--auth=")
+    known = ("--runtime=", "--auth=", "--config-only")
     target = next((f.split("=", 1)[1] for f in flags if f.startswith("--runtime=")), "")
     auth_flag = next((f.split("=", 1)[1].lower() for f in flags if f.startswith("--auth=")), "")
-    if len(args) != 2 or any(not f.startswith(known) for f in flags) or auth_flag not in ("", "iam", "jwt"):
+    config_only = "--config-only" in flags
+    if (
+        len(args) != (1 if config_only else 2)
+        or any(not f.startswith(known) for f in flags)
+        or auth_flag not in ("", "iam", "jwt")
+    ):
         sys.exit(
             "usage: deploy_agent.py <agent-name> <zip-path> [--runtime=<name-or-arn>] [--auth=iam|jwt]\n"
-            "  --runtime  update an EXISTING runtime whose name this script would not\n"
-            "             guess — e.g. one created by hand in the AgentCore console.\n"
-            "  --auth     inbound auth for the runtime. Default: jwt for the agents in\n"
-            "             JWT_AUTH_AGENTS, iam for every other. jwt needs ENTRA_TENANT_ID\n"
-            "             (or ENTRA_DISCOVERY_URL) and an audience in .env."
+            "       deploy_agent.py <agent-name> --config-only [--runtime=…] [--auth=…]\n"
+            "  --runtime      update an EXISTING runtime whose name this script would not\n"
+            "                 guess — e.g. one created by hand in the AgentCore console.\n"
+            "  --auth         inbound auth for the runtime. Default: jwt for the agents in\n"
+            "                 JWT_AUTH_AGENTS, iam for every other. jwt needs ENTRA_TENANT_ID\n"
+            "                 (or ENTRA_DISCOVERY_URL) and an audience in .env.\n"
+            "  --config-only  apply runtime CONFIG to an existing runtime and keep the code\n"
+            "                 it is already running: no zip, no build, no upload. For changes\n"
+            "                 that live on the runtime rather than in the package — the header\n"
+            "                 allowlist, the authorizer, env vars. Re-uploading 37-51 MB per\n"
+            "                 agent to change a config field also replaces the bytes of a\n"
+            "                 working agent, which is a real risk taken for no reason."
         )
-    agent_name, zip_arg = args
+    agent_name = args[0]
+    zip_arg = args[1] if not config_only else ""
     if agent_name not in CATALOG_AGENT_IDS:
         sys.exit(
             f"FAIL: unknown agent name, expected one of {sorted(CATALOG_AGENT_IDS)} "
             "(add a brand-new agent to CATALOG_AGENT_IDS first)"
         )
-    zip_path = Path(zip_arg).resolve()
-    if not zip_path.exists():
+    zip_path = Path(zip_arg).resolve() if zip_arg else None
+    if zip_path and not zip_path.exists():
         sys.exit(f"FAIL: zip not found: {zip_path}")
 
     env = load_env()
     region = require(env, "AWS_REGION")
-    bucket = require(env, "DEPLOY_BUCKET")
+    # No upload in config-only mode, so a deploy bucket is not needed to run one.
+    bucket = "" if config_only else require(env, "DEPLOY_BUCKET")
     role_arn = require(env, "EXECUTION_ROLE_ARN")
     inbound_auth = auth_flag or ("jwt" if agent_name in JWT_AUTH_AGENTS else "iam")
 
@@ -512,11 +526,12 @@ def main() -> None:
     else:
         existing = find_existing_runtime(control, derived_name)
 
-    ensure_bucket(s3, bucket, region)
     object_key = f"{agent_name}/deployment_package.zip"
-    size_mb = zip_path.stat().st_size / (1024 * 1024)
-    print(f"Uploading {zip_path.name} ({size_mb:.0f} MB) to s3://{bucket}/{object_key}")
-    s3.upload_file(str(zip_path), bucket, object_key, Config=S3_TRANSFER)
+    if not config_only:
+        ensure_bucket(s3, bucket, region)
+        size_mb = zip_path.stat().st_size / (1024 * 1024)
+        print(f"Uploading {zip_path.name} ({size_mb:.0f} MB) to s3://{bucket}/{object_key}")
+        s3.upload_file(str(zip_path), bucket, object_key, Config=S3_TRANSFER)
 
     # `existing` is already resolved above — catalog first, else the name-derived
     # runtime. An explicit --runtime overrides that with a runtime the naming
@@ -531,8 +546,24 @@ def main() -> None:
         print("Gateway config present: BEDROCK_ENDPOINT_URL + BEDROCK_API_KEY set on the runtime")
         print("  (only a cloud_deploy/agents/ build can use these; a Phase0/agents/ build ignores them)")
 
+    # Config-only keeps whatever code the runtime is already serving. update is a
+    # full PUT, so the artifact still has to be sent — read it back from the
+    # runtime rather than rebuilding a description of it, which is the difference
+    # between "unchanged" and "identical as far as I can tell".
+    if config_only:
+        if not existing:
+            sys.exit(
+                f"FAIL: --config-only updates an existing runtime, and none was found for "
+                f"'{agent_name}'. Deploy it with a zip first."
+            )
+        current = control.get_agent_runtime(agentRuntimeId=existing["agentRuntimeId"])
+        artifact = current["agentRuntimeArtifact"]
+        print(f"Config-only: keeping the code {current['agentRuntimeName']} already runs (no upload)")
+
     runtime_config = {
-        "agentRuntimeArtifact": {
+        "agentRuntimeArtifact": artifact
+        if config_only
+        else {
             "codeConfiguration": {
                 "code": {"s3": {"bucket": bucket, "prefix": object_key}},
                 "runtime": "PYTHON_3_13",

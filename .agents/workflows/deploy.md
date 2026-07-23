@@ -14,7 +14,13 @@ cd Phase0
 ```bash
 cd Phase0
 uv run scripts/deploy_agent.py <agent-name> <zip-path>
+
+# runtime config only — no zip, no build, no upload; keeps the running code
+uv run scripts/deploy_agent.py <agent-name> --config-only
 ```
+- `--config-only` is for what lives on the runtime rather than in the package:
+  the request-header allowlist, the inbound authorizer, environment variables.
+  Skip step 1 entirely for those. It requires the runtime to exist already.
 - Reads `AWS_REGION`, `DEPLOY_BUCKET`, `EXECUTION_ROLE_ARN`, `BEDROCK_MODEL_ID`
   from `Phase0/.env` (never from `backend/.env` — the running backend never
   reads deploy config).
