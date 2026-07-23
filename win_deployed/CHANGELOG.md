@@ -14,6 +14,67 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 _Nothing yet._
 
+## [1.10.0] — 2026-07-22
+
+Carries PRs #50, #51, #52, #53 and #54 into the enterprise payload. The
+observability change (#51) is the one that alters how a runtime is created, so
+read that part before deploying.
+
+### Added
+
+- **The agents emit traces now, not just stdout logs.** Every runtime had an
+  `otel-rt-logs` stream that AgentCore had created and nothing had ever written
+  to, and no spans existed anywhere. The zips carried no ADOT and the entry
+  point was `["agent.py"]`; ADOT is the only thing that produces spans.
+  "Observability is automatic on AgentCore Runtime" means automatic *once the
+  distro ships and the entry point is wrapped*.
+
+  Two things changed together, and they must stay together: every agent's
+  `requirements.txt` gained `aws-opentelemetry-distro`, and the runtime entry
+  point became `["opentelemetry-instrument", "agent.py"]`. **A runtime created
+  with the wrapped entry point and an older zip will not start** — it fails as
+  an initialization timeout, which says nothing about the cause. Use the 1.10.0
+  packages with the 1.10.0 entry point.
+
+  The console's *Entry point* field takes a single file, so the array form
+  usually has to be set with `update-agent-runtime` after creating the runtime.
+  `README.md` has the command, including the warning that the call replaces
+  `environmentVariables` wholesale.
+
+  Verified on all seven agents: one invocation now yields a full span tree —
+  `POST /invocations` → `invoke_agent` → `execute_event_loop_cycle` → `chat` →
+  `chat <model-id>` — plus `execute_tool` spans per tool call, and per-node
+  `execute_task` spans for the LangGraph agent (that one also carries
+  `opentelemetry-instrumentation-langchain`, without which the graph is
+  invisible and only the model call shows).
+
+- **`whoami-strands`** (#54) and **`jira-story-strands`** join the payload. Both
+  were missing from `dist/agentcore/`; the package now ships all seven agents.
+
+### Fixed
+
+- **The S3 upload no longer times out.** ADOT took the packages from 27 MB to
+  37 MB, and 42 to 51 MB for the LangGraph agent. boto3 uploads that as ten
+  concurrent 8 MB parts, so on a modest uplink every part idles past the 60s
+  socket timeout and the deploy dies with `RequestTimeout` on `UploadPart` —
+  which reads like an AWS fault and is not one. Now four parts of 16 MB with a
+  300s read timeout. This matters more over a corporate link than it did here.
+
+- **`invoke_agentcore.py` resolves the runtime the way `deploy_agent.py` does**
+  (#52) — catalog first, then the naming convention. It used to fail on agents
+  whose catalog target and derived name disagree, while listing the name it
+  could not find as a known one.
+
+- **A single object inside a list no longer takes the chat down** (#50), and
+  **aiosqlite's debug logging no longer buries the trace** it was added to make
+  readable (#49).
+
+### Note on package size
+
+`dist/agentcore/` grows from ~155 MB to ~285 MB: seven packages instead of five,
+each ~10 MB larger because ADOT vendors its instrumentation libraries. Still far
+under AgentCore's 250 MB zipped / 750 MB unzipped limit per package.
+
 ## [1.9.0] — 2026-07-22
 
 Carries PR #41 into the enterprise payload.

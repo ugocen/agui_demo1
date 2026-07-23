@@ -65,7 +65,15 @@ async function handler(request: Request): Promise<Response> {
     const runtime = new CopilotRuntime({
       agents: ({ request: agentRequest }: { request: Request }) => {
         const authorization = agentRequest.headers.get("authorization");
-        const headers: Record<string, string> = authorization ? { Authorization: authorization } : {};
+        // The second token, for agents on a JWT-authorized AgentCore runtime.
+        // The runtime rejects the platform's own bearer (a Graph access token is
+        // not verifiable by an OIDC authorizer), so the browser sends a
+        // tenant-issued one alongside it and the proxy forwards THAT upstream.
+        const agentAuthorization = agentRequest.headers.get("x-agent-authorization");
+        const headers: Record<string, string> = {
+          ...(authorization ? { Authorization: authorization } : {}),
+          ...(agentAuthorization ? { "X-Agent-Authorization": agentAuthorization } : {}),
+        };
         // One HttpAgent per catalog id -> the AG-UI proxy route for that id.
         return Object.fromEntries(
           agentIds.map((id) => [id, new HttpAgent({ url: `${BACKEND_URL}/api/agui/${id}`, headers })]),

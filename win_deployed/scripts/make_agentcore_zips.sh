@@ -53,9 +53,17 @@ for agent in "${AGENT_DIRS[@]}"; do
   echo "    $agent-$VERSION.zip"
 done
 
-rm -rf "$BUILD"
-
 ( cd "$DIST" && shasum -a 256 ./*.zip > SHA256SUMS.txt )
+
+# Cleanup last, and never fatal. This used to run before the checksums, under
+# `set -e`, and `rm -rf` on the per-agent package folders intermittently fails
+# with "Directory not empty" on macOS — so the script died after building all
+# seven packages and never wrote SHA256SUMS.txt. Every artifact was correct and
+# the delivery still failed check_zips.sh, with the exit code the only clue.
+# The leftovers are gitignored build scratch; a stale one costs nothing.
+if ! rm -rf "$BUILD" 2>/dev/null; then
+  echo "WARN: could not fully remove $BUILD — safe to delete by hand" >&2
+fi
 
 echo
 echo "OK: deployable packages in win_deployed/dist/agentcore/ (version $VERSION)"

@@ -79,6 +79,7 @@ async def sync_from_agentcore(db: AsyncSession, runtimes: list[dict]) -> dict:
                     runtime_arn=arn,
                     runtime_name=rt.get("name") or "",
                     protocol=protocol,
+                    inbound_auth=rt.get("inbound_auth") or "iam",
                     status=rt.get("status") or "",
                     version=str(rt.get("version") or ""),
                     last_synced_at=now,
@@ -89,6 +90,10 @@ async def sync_from_agentcore(db: AsyncSession, runtimes: list[dict]) -> dict:
             # Refresh read-only synced fields only; never touch editable fields.
             entry.runtime_name = rt.get("name") or entry.runtime_name
             entry.protocol = protocol or entry.protocol
+            # Unconditional, unlike the fields above: an `or`-guard would make
+            # "the runtime went back to IAM" unrepresentable, and the proxy would
+            # keep forwarding the user's token to a runtime that no longer takes it.
+            entry.inbound_auth = rt.get("inbound_auth") or "iam"
             entry.status = rt.get("status") or entry.status
             entry.version = str(rt.get("version") or entry.version)
             entry.last_synced_at = now
@@ -108,6 +113,10 @@ async def update_entry(db: AsyncSession, agent_id: str, patch: dict) -> AgentCat
             continue
         if key == "ui_mode" and value not in UI_MODES:
             continue
+        # Booleans arrive over JSON and can be anything the caller sent; coerce so
+        # a string "false" cannot land in the column as a truthy value.
+        if key in ("enabled", "accepts_files"):
+            value = bool(value)
         setattr(entry, key, value)
     await db.commit()
     await db.refresh(entry)

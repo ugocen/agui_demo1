@@ -26,13 +26,17 @@ except ImportError:
 # turn OTEL off. Keyed off an explicit LOCAL_DEV flag (set it in agents/.env).
 #
 # It previously inferred "am I local?" from OTEL_EXPORTER_OTLP_ENDPOINT being
-# unset, on the assumption that AgentCore injects it. No AWS documentation says
-# that: for runtime-hosted agents the docs say observability is enabled
-# automatically, and the opt-out is DISABLE_ADOT_OBSERVABILITY. If the variable
-# is not in fact injected, that check silently set OTEL_SDK_DISABLED=true on
-# AgentCore too — turning off the very tracing we deploy there to get. An
-# explicit flag cannot be wrong about its own environment; .env never ships in
-# the zip, so LOCAL_DEV is present locally and absent on AgentCore.
+# unset, on the assumption that AgentCore injects it. That assumption silently
+# set OTEL_SDK_DISABLED=true on AgentCore too — turning off the very tracing we
+# deploy there to get. An explicit flag cannot be wrong about its own
+# environment; .env never ships in the zip, so LOCAL_DEV is present locally and
+# absent on AgentCore.
+#
+# What produces that tracing is ADOT, and only ADOT: aws-opentelemetry-distro in
+# requirements.txt plus the ["opentelemetry-instrument", "agent.py"] entry point
+# in deploy_agent.py. Runtime hosting on its own emits stdout logs and nothing
+# else — "observability is automatic on AgentCore Runtime" means automatic once
+# both of those are in place.
 if os.environ.get("LOCAL_DEV", "").strip().lower() in ("1", "true", "yes", "on"):
     os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
