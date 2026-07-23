@@ -11,17 +11,22 @@ what the container finds in the ``Authorization`` header:
 * **JWT inbound auth** (``authorizerConfiguration.customJWTAuthorizer``, what
   ``deploy_agent.py --auth=jwt`` configures) — the caller sends
   ``Authorization: Bearer <Entra token>``, AgentCore validates it against the
-  tenant's OIDC discovery document *before* the container is reached, and
-  forwards the header unchanged (``Authorization`` is not on the runtime's
-  restricted-header list, so it reaches agent code). This is the deployment this
-  agent exists to demonstrate.
+  tenant's OIDC discovery document *before* the container is reached, and then
+  forwards it **only if the runtime allowlists it**
+  (``requestHeaderConfiguration.requestHeaderAllowlist``). That allowlist is the
+  fact this file got wrong until 2026-07-23: NOTHING reaches agent code without
+  it, so a run AgentCore had just authenticated resolved to
+  ``token_source: none`` and this agent saw two platform-injected headers and no
+  token. Not a restricted-header problem — ``Authorization`` is absent from that
+  list and the SDK special-cases it — simply a header the runtime never asked for.
 * **IAM / SigV4 inbound auth** (the default, and what the other agents use) — the
   same header carries the AWS signature, ``AWS4-HMAC-SHA256 Credential=…``. It is
   never a user token, so a value starting with ``AWS4-`` is ignored here. The
-  platform proxy can instead relay the caller's Entra tokens in the runtime's
-  *custom* forwardable headers (``X-Amzn-Bedrock-AgentCore-Runtime-Custom-*``),
-  which keeps this agent working on an IAM runtime — local dev, the smoke test,
-  and any time before the JWT switch is made.
+  platform proxy relays the caller's Entra tokens in the runtime's *custom*
+  forwardable headers (``X-Amzn-Bedrock-AgentCore-Runtime-Custom-*``), which
+  keeps this agent working on an IAM runtime — local dev, the smoke test, and
+  any time before the JWT switch is made. Those need the same allowlist: the
+  prefix makes a header eligible for it, never exempt from it.
 
 Both paths end in the same place: a token, and where it came from.
 
@@ -174,10 +179,12 @@ def fingerprint(token: str) -> str:
 def caller_token() -> tuple[str | None, str]:
     """The caller's Entra token and how it reached us.
 
-    Sources, in order: the validated JWT AgentCore forwarded, then the platform
-    proxy's relay. `AWS4-…` in `Authorization` is the SigV4 signature of an
-    IAM-authorized invoke, never a user token — treating it as one would be how a
-    caller's *absence* of identity turns into a confusing parse error.
+    Sources, in order: an `Authorization` bearer, then the platform proxy's
+    relay. Which one arrives is a property of the runtime's header allowlist
+    (see the module docstring), so both are checked and neither is assumed.
+    `AWS4-…` in `Authorization` is the SigV4 signature of an IAM-authorized
+    invoke, never a user token — treating it as one would be how a caller's
+    *absence* of identity turns into a confusing parse error.
     """
     headers = _headers()
     raw = headers.get("authorization", "")
@@ -459,9 +466,10 @@ def resolve_identity(*, with_profile: bool) -> dict:
         }
         if not token:
             result["notes"].append(
-                "No caller token reached this runtime. Under JWT inbound auth the Authorization header "
-                "carries it; under IAM inbound auth the backend proxy must relay it "
-                "(AGENT_TOKEN_RELAY=1). With SSO off (AUTH_MODE=iam) there is no user token to send."
+                "No caller token reached this runtime. Either this runtime does not allowlist the header "
+                "that carries it (requestHeaderAllowlist — AgentCore drops every header the runtime does "
+                "not ask for, including Authorization), or the backend proxy is not relaying it "
+                "(AGENT_TOKEN_RELAY=1). With SSO off (AUTH_MODE=iam) there is no user token to send at all."
             )
             span.set_attribute("auth.authenticated", False)
             return result

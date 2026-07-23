@@ -257,7 +257,7 @@ become required.
 > a later scripted redeploy. (Values present in `.env` do overwrite the
 > runtime's, so keep `.env` correct.)
 
-Accepted `<agent-name>` values — exactly these five:
+Accepted `<agent-name>` values — exactly these seven:
 
 ```
 sdlc-planner-strands
@@ -265,7 +265,38 @@ release-readiness-langgraph
 bug-report-strands
 a2ui-demo-strands
 press-release-strands
+jira-story-strands
+whoami-strands
 ```
+
+### Changing runtime config without re-uploading a zip
+
+```bash
+uv run scripts/deploy_agent.py <agent-name> --config-only
+```
+
+Applies the runtime configuration this script owns — the request-header
+allowlist, the inbound authorizer, environment variables — to a runtime that
+already exists, keeping the code it is currently serving. No build, no upload,
+no 37-51 MB across the wire, and the deployed bytes of a working agent are not
+replaced to change a config field.
+
+This is the way to pick up the header allowlist described below on runtimes you
+have already deployed. It fails if the runtime does not exist yet — the first
+deploy of an agent always needs a zip.
+
+> **Runtimes forward no header to agent code unless they allowlist it.**
+> AgentCore drops every request header the runtime did not ask for — including
+> `Authorization`, and including the
+> `X-Amzn-Bedrock-AgentCore-Runtime-Custom-*` headers the backend proxy uses to
+> relay the caller's identity (`AGENT_TOKEN_RELAY=1`). That prefix makes a header
+> *eligible* for the allowlist, not exempt from it. A runtime deployed by an
+> earlier version of this script has no allowlist and reaches agent code with
+> exactly two platform-injected headers (`baggage`, `workloadaccesstoken`), so an
+> identity-aware agent sees no caller at all — check yours with
+> `aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id <id>`.
+> This script now sets the allowlist on every runtime it deploys; existing
+> runtimes need one `--config-only` run each.
 
 ---
 

@@ -14,6 +14,43 @@ Bump `VERSION` and add an entry here whenever the payload changes. See
 
 ### Fixed
 
+- **Agents could not see who was calling them: runtimes forwarded no headers.**
+  AgentCore drops every request header a runtime has not allowlisted
+  (`requestHeaderConfiguration.requestHeaderAllowlist`) — `Authorization`
+  included, and the `X-Amzn-Bedrock-AgentCore-Runtime-Custom-*` headers the
+  backend proxy relays the caller's tokens in. That prefix makes a header
+  *eligible* for the allowlist, never exempt from it, so the relay
+  (`AGENT_TOKEN_RELAY=1`) has never actually reached agent code. `deploy_agent.py`
+  now sets the allowlist on every runtime it deploys: both relay headers, plus
+  `Authorization` on a JWT-authorized runtime (the API accepts that one only
+  alongside a `customJWTAuthorizer`).
+
+  **This is runtime configuration, not package code — shipping this payload does
+  not apply it.** Every already-deployed runtime needs one run each:
+
+  ```bash
+  uv run scripts/deploy_agent.py <agent-name> --config-only
+  ```
+
+- **The health banner reported JWT-authorized agents as down.** The frontend's
+  liveness probe opens a real AG-UI run but sent only the platform bearer, never
+  the second tenant-issued token, so the backend refused it and the banner said
+  the agent was not responding while its chat worked.
+
+### Added
+
+- **`deploy_agent.py --config-only`.** Applies runtime config to an existing
+  runtime and keeps the code it is already running — no zip argument, no build,
+  no upload. Added because the fix above has to be applied to seven runtimes that
+  need no new code, and re-uploading 37-51 MB per agent to change one config
+  field also replaces the bytes of a working agent.
+
+- **`agents/README.md`** documents both, and its accepted-agent list said "five"
+  when the package has shipped seven since `jira-story-strands` and
+  `whoami-strands` were added.
+
+### Fixed
+
 - **`agents/.env.example` documented a deploy script that no longer exists.**
   Three corrections, all in the hand-written template — no code changed, so the
   archives in `dist/` are unaffected in behaviour but no longer byte-match the

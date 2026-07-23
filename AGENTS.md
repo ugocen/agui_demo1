@@ -95,6 +95,10 @@ cd Phase0
 cd Phase0
 uv run scripts/deploy_agent.py <agent-name> <zip-path>
 
+# Change runtime config only (header allowlist, authorizer, env) — keeps the
+# code the runtime already serves, so no build and no 37-51 MB upload
+uv run scripts/deploy_agent.py <agent-name> --config-only
+
 # Smoke (backend must be running; hits live AgentCore)
 cd Phase0
 uv run scripts/smoke_test.py                  # respects BACKEND_URL, default http://localhost:8000
