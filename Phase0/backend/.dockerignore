@@ -1,0 +1,36 @@
+# Dependencies & build artifacts
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Local databases (never bake into the image)
+*.db
+*.sqlite3
+
+# Environment files (secrets — never in the image)
+.env
+.env.*
+
+# Dev/agent tooling
+.claude/
+.agents/
+CLAUDE.md
+AGENTS.md
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+
+# Build output
+build/
+*.zip
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docs
+README.md
